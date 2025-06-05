@@ -9,11 +9,18 @@ import (
 
 // Chunk представляет участок мира размером 16x16 блоков
 type Chunk struct {
-	Coords        vec.Vec2                            // Координаты чанка в мире
-	Blocks        [16][16]block.BlockID               // Матрица блоков
-	Metadata      map[vec.Vec2]map[string]interface{} // Метаданные блоков
-	Changes       map[vec.Vec2]struct{}               // Измененные блоки
-	Tickable      map[vec.Vec2]struct{}               // Тикаемые блоки
+	Coords vec.Vec2 // Координаты чанка в мире
+
+	// Blocks сохраняет слой ACTIVE для обратной совместимости.
+	// Новые функции должны использовать Blocks3D или методы Get/SetBlockLayer.
+	Blocks [16][16]block.BlockID // DEPRECATED: однослойная матрица
+
+	// Blocks3D[layer][x][y]
+	Blocks3D [MaxLayers][16][16]block.BlockID
+
+	Metadata      map[vec.Vec2]map[string]interface{} // Метаданные (пока только ACTIVE)
+	Changes       map[vec.Vec2]struct{}               // Измененные блоки (ACTIVE)
+	Tickable      map[vec.Vec2]struct{}               // Тикаемые блоки (ACTIVE)
 	ChangeCounter int                                 // Счетчик изменений
 	Mu            sync.RWMutex                        // Мьютекс для безопасного доступа
 }
@@ -21,10 +28,10 @@ type Chunk struct {
 // NewChunk создаёт новый чанк с указанными координатами
 func NewChunk(coords vec.Vec2) *Chunk {
 	return &Chunk{
-		Coords:        coords,
-		Changes:       make(map[vec.Vec2]struct{}),
-		Metadata:      make(map[vec.Vec2]map[string]interface{}),
-		Blocks:        [16][16]block.BlockID{},
+		Coords:   coords,
+		Changes:  make(map[vec.Vec2]struct{}),
+		Metadata: make(map[vec.Vec2]map[string]interface{}),
+		// Blocks и Blocks3D инициализируются нулевыми значениями (Air).
 		Mu:            sync.RWMutex{},
 		ChangeCounter: 0,
 		Tickable:      make(map[vec.Vec2]struct{}),
@@ -114,6 +121,7 @@ func (c *Chunk) SetBlock(local vec.Vec2, blockID block.BlockID) {
 
 	// Обновляем блок
 	c.Blocks[local.X][local.Y] = blockID
+	c.Blocks3D[LayerActive][local.X][local.Y] = blockID
 	c.Changes[local] = struct{}{}
 	c.ChangeCounter++
 
@@ -132,6 +140,7 @@ func (c *Chunk) SetBlockWithBehavior(local vec.Vec2, behavior block.BlockBehavio
 
 	// Обновляем блок
 	c.Blocks[local.X][local.Y] = behavior.ID()
+	c.Blocks3D[LayerActive][local.X][local.Y] = behavior.ID()
 	c.Changes[local] = struct{}{}
 	c.ChangeCounter++
 
@@ -153,7 +162,11 @@ func (c *Chunk) GetBlock(local vec.Vec2) block.BlockID {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 
-	return c.Blocks[local.X][local.Y]
+	id := c.Blocks3D[LayerActive][local.X][local.Y]
+	if id == 0 { // fallback для данных, ещё не перенесённых в 3D-массив
+		id = c.Blocks[local.X][local.Y]
+	}
+	return id
 }
 
 // HasChanges возвращает true, если в чанке есть изменения
@@ -171,4 +184,39 @@ func (c *Chunk) ClearChanges() {
 
 	c.Changes = make(map[vec.Vec2]struct{})
 	c.ChangeCounter = 0
+}
+
+// GetBlockLayer возвращает ID блока на конкретном слое.
+func (c *Chunk) GetBlockLayer(layer BlockLayer, local vec.Vec2) block.BlockID {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	if layer >= MaxLayers {
+		return 0
+	}
+	id := c.Blocks3D[layer][local.X][local.Y]
+	if layer == LayerActive && id == 0 {
+		id = c.Blocks[local.X][local.Y]
+	}
+	return id
+}
+
+// SetBlockLayer устанавливает блок на указанном слое.
+func (c *Chunk) SetBlockLayer(layer BlockLayer, local vec.Vec2, blockID block.BlockID) {
+	if layer >= MaxLayers {
+		return
+	}
+
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	c.Blocks3D[layer][local.X][local.Y] = blockID
+
+	// Для совместимости: если изменяем ACTIVE, дублируем в 2-D поле/тик-карты.
+	if layer == LayerActive {
+		c.Blocks[local.X][local.Y] = blockID
+	}
+
+	c.Changes[local] = struct{}{}
+	c.ChangeCounter++
 }
