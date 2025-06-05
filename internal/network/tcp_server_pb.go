@@ -227,18 +227,14 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 		return
 	}
 
-	// Аутентификация для сообщений, кроме MsgAuth
-	if msg.Type != protocol.MsgAuth && c.playerID == 0 {
-		log.Printf("Отклонено неаутентифицированное сообщение типа %d от %s",
-			msg.Type, c.id)
-
-		// Отправляем сообщение об ошибке аутентификации
-		errorResponse := &protocol.AuthResponse{
-			Success: false,
-			Message: "Требуется аутентификация",
+	// Проверяем, что соединение авторизовано и токен валиден
+	if msg.Type != protocol.MsgAuth {
+		if !c.server.gameHandler.IsSessionValid(c.id) {
+			log.Printf("Недействительная или отсутствующая сессия для %s", c.id)
+			errorResponse := &protocol.AuthResponse{Success: false, Message: "invalid session"}
+			c.sendMessage(protocol.MsgAuthResponse, errorResponse)
+			return
 		}
-		c.sendMessage(protocol.MsgAuthResponse, errorResponse)
-		return
 	}
 
 	// Передаем сообщение в игровой обработчик
