@@ -63,8 +63,7 @@ func (a *WorldStorageAdapter) ApplyEntitiesToBigChunk(entities map[uint64]interf
 
 	// Применяем данные к карте сущностей
 	for id, entityData := range data.Entities {
-		// Создаем структуру EntityData
-		entityData := map[string]interface{}{
+		mapped := map[string]interface{}{
 			"ID":       entityData.ID,
 			"Type":     entityData.Type,
 			"Position": entityData.Position,
@@ -72,7 +71,7 @@ func (a *WorldStorageAdapter) ApplyEntitiesToBigChunk(entities map[uint64]interf
 		}
 
 		// Добавляем в карту сущностей
-		entities[id] = entityData
+		entities[id] = mapped
 	}
 }
 
