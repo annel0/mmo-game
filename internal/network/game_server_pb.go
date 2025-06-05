@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/annel0/mmo-game/internal/auth"
 	"github.com/annel0/mmo-game/internal/world"
 	"github.com/annel0/mmo-game/internal/world/entity"
 )
@@ -32,8 +33,15 @@ func NewGameServerPB(tcpAddr, udpAddr string) (*GameServerPB, error) {
 	// Создаем менеджер сущностей
 	entityManager := entity.NewEntityManager()
 
+	// Подготавливаем репозиторий пользователей (in-memory)
+	userRepo, err := auth.NewMemoryUserRepo()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+
 	// Создаем обработчик игровых сообщений
-	gameHandler := NewGameHandlerPB(worldManager, entityManager)
+	gameHandler := NewGameHandlerPB(worldManager, entityManager, userRepo)
 
 	// Создаем TCP-сервер
 	tcpServer, err := NewTCPServerPB(tcpAddr, worldManager)
