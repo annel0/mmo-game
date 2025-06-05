@@ -17,9 +17,6 @@ const (
 	MsgPong         MsgType = 4
 	MsgError        MsgType = 5
 
-	// Регистрация
-	MsgRegister MsgType = 9
-
 	// Блоки и чанки
 	MsgBlockUpdate         MsgType = 10
 	MsgBlockUpdateResponse MsgType = 11
