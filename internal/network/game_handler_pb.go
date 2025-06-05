@@ -80,6 +80,8 @@ func (gh *GameHandlerPB) HandleMessage(connID string, msg *protocol.GameMsg) {
 	switch msg.Type {
 	case protocol.MsgAuth:
 		gh.handleAuth(connID, msg)
+	case protocol.MsgRegister:
+		gh.handleRegister(connID, msg)
 	case protocol.MsgBlockUpdate:
 		gh.handleBlockUpdate(connID, msg)
 	case protocol.MsgChunkRequest:
@@ -485,6 +487,144 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMsg) {
 		Success:   true,
 		PlayerId:  playerID,
 		Message:   "Авторизация успешна",
+		Token:     token,
+		WorldName: "default",
+	}
+	gh.sendTCPMessage(connID, protocol.MsgAuthResponse, resp)
+
+	// Отправляем данные мира
+	gh.sendWorldDataToPlayer(connID, playerID)
+}
+
+// handleRegister обрабатывает регистрацию и создает игровую сущность
+func (gh *GameHandlerPB) handleRegister(connID string, msg *protocol.GameMsg) {
+	registerMsg := &protocol.AuthRequest{}
+	if err := gh.serializer.DeserializePayload(msg, registerMsg); err != nil {
+		log.Printf("Ошибка десериализации Register: %v", err)
+		return
+	}
+
+	// Если уже имеется валидная сессия – пропускаем повторную регистрацию
+	if gh.IsSessionValid(connID) {
+		log.Printf("Повторная регистрация от %s игнорируется", connID)
+		return
+	}
+
+	var (
+		user      *auth.User
+		playerID  uint64
+		token     string
+		isAdmin   bool
+		loginFail = func(reason string) {
+			resp := &protocol.AuthResponse{Success: false, Message: reason}
+			gh.sendTCPMessage(connID, protocol.MsgAuthResponse, resp)
+		}
+	)
+
+	// branch 1: токен
+	if registerMsg.Token != nil && *registerMsg.Token != "" {
+		pid, valid, admin := auth.ValidateJWT(*registerMsg.Token)
+		if !valid {
+			loginFail("invalid token")
+			return
+		}
+		isAdmin = admin
+		playerID = pid // Для mock JWT PID — псевдо-значение
+
+		// Попробуем найти пользователя по username (может быть пусто)
+		username := registerMsg.Username
+		if username == "" {
+			username = fmt.Sprintf("player%d", playerID)
+		}
+		u, err := gh.userRepo.GetUserByUsername(username)
+		if err == auth.ErrUserNotFound {
+			// создаём
+			u, err = gh.userRepo.CreateUser(username, "", isAdmin)
+			if err != nil {
+				loginFail("repository error")
+				return
+			}
+		}
+		user = u
+		token = *registerMsg.Token
+	} else {
+		// branch 2: username + password (регистрация по новым данным)
+		if registerMsg.Username == "" || registerMsg.Password == nil {
+			loginFail("username/password required")
+			return
+		}
+		if !validateUsername(registerMsg.Username) {
+			loginFail("invalid username")
+			return
+		}
+		if !validatePassword(*registerMsg.Password) {
+			loginFail("weak password")
+			return
+		}
+
+		// Проверяем, существует ли пользователь
+		_, err := gh.userRepo.GetUserByUsername(registerMsg.Username)
+		if err == nil {
+			loginFail("user exists")
+			return
+		}
+		if err != auth.ErrUserNotFound {
+			loginFail("repository error")
+			return
+		}
+
+		// Создаем пользователя
+		hash, err := auth.HashPassword(*registerMsg.Password)
+		if err != nil {
+			loginFail("internal error")
+			return
+		}
+		newUser, err := gh.userRepo.CreateUser(registerMsg.Username, hash, false)
+		if err == auth.ErrUserExists {
+			loginFail("user exists")
+			return
+		}
+		if err != nil {
+			loginFail("repository error")
+			return
+		}
+		user = newUser
+		isAdmin = false
+		token = auth.GenerateMockJWT(user)
+	}
+
+	// Создаем игровую сущность
+	gh.mu.Lock()
+	if _, exists := gh.playerEntities[connID]; !exists {
+		entityID := gh.generateEntityID()
+		gh.playerEntities[connID] = entityID
+		gh.playerAuth[entityID] = user.Username
+		// Сохраняем сессию
+		gh.sessions[connID] = &Session{PlayerID: entityID, Username: user.Username, Token: token, IsAdmin: isAdmin}
+
+		// Создаем сущность игрока в мире
+		spawnPos := vec.Vec2{X: 0, Y: 0}
+		gh.spawnEntityWithID(entity.EntityTypePlayer, spawnPos, entityID)
+
+		// Связываем TCP-соединение с playerID для дальнейших проверок
+		if gh.tcpServer != nil {
+			gh.tcpServer.mu.Lock()
+			if conn, ok := gh.tcpServer.connections[connID]; ok {
+				conn.playerID = entityID
+			}
+			gh.tcpServer.mu.Unlock()
+		}
+		playerID = entityID
+	} else {
+		playerID = gh.playerEntities[connID]
+	}
+	gh.mu.Unlock()
+
+	// Успешный ответ
+	resp := &protocol.AuthResponse{
+		Success:   true,
+		PlayerId:  playerID,
+		Message:   "Регистрация успешна",
 		Token:     token,
 		WorldName: "default",
 	}
@@ -1033,4 +1173,33 @@ func (gh *GameHandlerPB) SendMessage(entityID uint64, messageType string, data i
 
 	// Отправляем сообщение клиенту
 	log.Printf("Отправка сообщения типа %s игроку %s", messageType, connID)
+}
+
+// validateUsername checks allowed characters (a-zA-Z0-9_ ) and length 3-16
+func validateUsername(u string) bool {
+	if len(u) < 3 || len(u) > 16 {
+		return false
+	}
+	for _, r := range u {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// validatePassword simple rules: min 6, at least one letter and one digit
+func validatePassword(p string) bool {
+	if len(p) < 6 {
+		return false
+	}
+	hasLetter, hasDigit := false, false
+	for _, r := range p {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			hasLetter = true
+		} else if r >= '0' && r <= '9' {
+			hasDigit = true
+		}
+	}
+	return hasLetter && hasDigit
 }
