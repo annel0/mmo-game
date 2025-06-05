@@ -18,12 +18,13 @@ require (
 	github.com/klauspost/compress v1.12.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	go.opencensus.io v0.22.5 // indirect
+	golang.org/x/crypto v0.24.0
 	golang.org/x/net v0.26.0 // indirect
 )
 
 require (
-	github.com/aquilax/go-perlin v1.1.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
+	github.com/aquilax/go-perlin v1.1.0
+	google.golang.org/protobuf v1.36.6
 )
+
+require golang.org/x/sys v0.25.0 // indirect
