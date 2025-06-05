@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+// Типы сообщений чата
+enum ChatType {
+  CHAT_GLOBAL = 0;
+  CHAT_LOCAL = 1;
+  CHAT_PRIVATE = 2;
+  CHAT_SYSTEM = 3;
+  CHAT_TEAM = 4;
+  CHAT_GUILD = 5;
+}
+
+// Запрос на отправку сообщения чата
+message ChatRequest {
+  ChatType type = 1;
+  string message = 2;
+  optional uint64 target_id = 3; // Для личных сообщений
+  optional string target_group = 4; // Для командных или гильдийских сообщений
+}
+
+// Сообщение чата, отправляемое сервером
+message ChatBroadcast {
+  ChatType type = 1;
+  string message = 2;
+  uint64 sender_id = 3;
+  string sender_name = 4;
+  int64 timestamp = 5;
+  optional uint64 target_id = 6; // Для личных сообщений
+  optional string target_group = 7; // Для командных или гильдийских сообщений
+} 

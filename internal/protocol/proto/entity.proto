@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+import "internal/protocol/proto/common.proto";
+
+// Типы сущностей
+enum EntityType {
+  ENTITY_UNKNOWN = 0;
+  ENTITY_PLAYER = 1;
+  ENTITY_NPC = 2;
+  ENTITY_MONSTER = 3;
+  ENTITY_ITEM = 4;
+  ENTITY_PROJECTILE = 5;
+}
+
+// Данные о сущности
+message EntityData {
+  uint64 id = 1;
+  EntityType type = 2;
+  Vec2 position = 3;
+  Vec2Float velocity = 4;
+  int32 direction = 5;
+  bool active = 6;
+  JsonMetadata attributes = 7; // JSON-метаданные атрибутов сущности
+  optional string animation = 8;
+  repeated string effects = 9; // Визуальные эффекты
+}
+
+// Сообщение о создании сущности
+message EntitySpawnMessage {
+  EntityData entity = 1;
+}
+
+// Сообщение о перемещении сущности
+message EntityMoveMessage {
+  repeated EntityData entities = 1;
+}
+
+// Сообщение об удалении сущности
+message EntityDespawnMessage {
+  uint64 entity_id = 1;
+  string reason = 2;
+}
+
+// Типы действий сущности
+enum EntityActionType {
+  ACTION_UNKNOWN = 0;
+  ACTION_INTERACT = 1;
+  ACTION_ATTACK = 2;
+  ACTION_USE_ITEM = 3;
+  ACTION_PICKUP = 4;
+  ACTION_DROP = 5;
+  ACTION_TRADE = 6;
+  ACTION_CRAFT = 7;
+  ACTION_EMOTE = 8;
+  ACTION_RESPAWN = 9;
+  ACTION_BUILD_PLACE = 10;
+  ACTION_BUILD_BREAK = 11;
+}
+
+// Запрос на действие сущности
+message EntityActionRequest {
+  EntityActionType action_type = 1;
+  optional uint64 target_id = 2;
+  optional Vec2 position = 3;
+  optional uint32 item_id = 4;
+  JsonMetadata params = 5; // JSON-метаданные параметров действия
+}
+
+// Ответ на действие сущности
+message EntityActionResponse {
+  bool success = 1;
+  string message = 2;
+  JsonMetadata results = 3; // JSON-метаданные результатов действия
+} 

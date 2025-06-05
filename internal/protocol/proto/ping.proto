@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+// Сообщение пинга для поддержания соединения
+message PingMessage {
+  int64 client_timestamp = 1;
+  optional bool alive = 2;
+}
+
+// Ответ на пинг
+message PongMessage {
+  int64 client_timestamp = 1;
+  int64 server_timestamp = 2;
+  int32 client_count = 3;
+  optional int32 tps = 4;
+} 

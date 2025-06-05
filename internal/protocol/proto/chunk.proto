@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+import "internal/protocol/proto/common.proto";
+import "internal/protocol/proto/entity.proto";
+
+// Запрос на получение чанка
+message ChunkRequest {
+  int32 chunk_x = 1;
+  int32 chunk_y = 2;
+}
+
+// Данные чанка
+message ChunkData {
+  int32 chunk_x = 1;
+  int32 chunk_y = 2;
+  repeated BlockRow blocks = 3; // Матрица блоков в чанке
+  repeated EntityData entities = 4; // Сущности в чанке
+  JsonMetadata metadata = 5; // JSON-метаданные чанка
+}
+
+// Строка блоков в чанке
+message BlockRow {
+  repeated uint32 block_ids = 1; // ID блоков в строке
+}
+
+// Данные метаданных блоков в чанке
+message ChunkBlockMetadata {
+  map<string, JsonMetadata> block_metadata = 1; // Ключ в формате "x:y", значение - метаданные блока
+} 

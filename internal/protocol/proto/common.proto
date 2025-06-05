@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+// MessageType определяет тип сообщения
+enum MessageType {
+  UNKNOWN = 0;
+  AUTH = 1;
+  AUTH_RESPONSE = 2;
+  CHUNK_DATA = 3;
+  CHUNK_REQUEST = 4;
+  PING = 5;
+  BLOCK_UPDATE = 6;
+  BLOCK_UPDATE_RESPONSE = 7;
+  ENTITY_SPAWN = 8;
+  ENTITY_MOVE = 9;
+  ENTITY_ACTION = 10;
+  ENTITY_ACTION_RESPONSE = 11;
+  CHAT = 12;
+  CHAT_BROADCAST = 13;
+  ENTITY_DESPAWN = 14;
+  WORLD_EVENT = 15;
+  PLAYER_STATS = 16;
+  PLAYER_INVENTORY = 17;
+  GAME_EVENT = 18;
+  SERVER_MESSAGE = 19;
+}
+
+// Общая структура сообщения, которая содержит тип и сериализованные данные
+message GameMessage {
+  MessageType type = 1;
+  int64 timestamp = 2;
+  uint32 sequence = 3;
+  optional uint32 ack = 4;
+  optional uint32 ack_bits = 5;
+  bytes payload = 6; // Сериализованные данные конкретного типа сообщения
+}
+
+// Структура для обработки метаданных в JSON-формате
+message JsonMetadata {
+  string json_data = 1; // JSON-сериализованные метаданные
+}
+
+// Vec2 - структура для 2D координат
+message Vec2 {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+// Vec2Float - структура для 2D координат с плавающей точкой
+message Vec2Float {
+  float x = 1;
+  float y = 2;
+} 
