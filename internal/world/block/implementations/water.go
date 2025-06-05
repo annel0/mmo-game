@@ -39,17 +39,7 @@ func (b *WaterBehavior) TickUpdate(api block.BlockAPI, pos vec.Vec2) {
 		return
 	}
 
-	// Cначала пытаемся течь вниз (гравитация)
-	below := vec.Vec2{X: pos.X, Y: pos.Y + 1}
-	if api.GetBlockID(below) == block.AirBlockID {
-		// Перемещаем воду вниз полностью, превращая текущий блок в воздух
-		api.SetBlock(below, block.WaterBlockID)
-		api.SetBlockMetadata(below, "level", level)
-		api.SetBlock(pos, block.AirBlockID)
-		return
-	}
-
-	// Если вниз нельзя – горизонтальное растекание
+	// Течение реализуется только по четырём соседним клеткам в плоскости
 	directions := []vec.Vec2{
 		{X: pos.X + 1, Y: pos.Y}, // право
 		{X: pos.X - 1, Y: pos.Y}, // лево
