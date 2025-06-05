@@ -39,7 +39,7 @@ func (b *WaterBehavior) TickUpdate(api block.BlockAPI, pos vec.Vec2) {
 		return
 	}
 
-	// Проверяем блоки вокруг для растекания
+	// Течение реализуется только по четырём соседним клеткам в плоскости
 	directions := []vec.Vec2{
 		{X: pos.X + 1, Y: pos.Y}, // право
 		{X: pos.X - 1, Y: pos.Y}, // лево

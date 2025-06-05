@@ -28,6 +28,13 @@ enum MessageType {
   SERVER_MESSAGE = 19;
 }
 
+// Логические этажи блока
+enum BlockLayer {
+  FLOOR = 0;
+  ACTIVE = 1;
+  CEILING = 2;
+}
+
 // Общая структура сообщения, которая содержит тип и сериализованные данные
 message GameMessage {
   MessageType type = 1;

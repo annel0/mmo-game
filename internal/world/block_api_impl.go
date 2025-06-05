@@ -200,4 +200,22 @@ func (api *bigChunkBlockAPI) SendEvent(eventType EventType, data interface{}, ta
 	}
 }
 
+// --- Layer-aware helpers ---
+func (api *chunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.BlockID {
+	local := api.chunk.toLocalCoords(pos)
+	return api.chunk.GetBlockLayer(BlockLayer(layer), local)
+}
+
+func (api *chunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
+	api.world.SetBlockLayer(pos, BlockLayer(layer), Block{ID: id})
+}
+
+func (api *bigChunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.BlockID {
+	return api.world.GetBlockLayer(pos, BlockLayer(layer)).ID
+}
+
+func (api *bigChunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
+	api.world.SetBlockLayer(pos, BlockLayer(layer), Block{ID: id})
+}
+
 // ... другие методы
