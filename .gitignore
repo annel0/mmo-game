@@ -1,0 +1,42 @@
+/** NEWFILE **/
+# ---> Go template
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, build outputs
+*.test
+*.out
+
+# Output directories for compiled code
+/bin/
+/build/
+/dist/
+
+# Go vendor directory (if you use `go mod vendor`)
+/vendor/
+
+# Go coverage files
+*.coverprofile
+*.cover.out
+
+# IDE & editor configs
+.idea/
+.vscode/
+*.sw?
+
+# macOS
+.DS_Store
+
+# Log files
+*.log
+
+# Generated Protocol Buffers
+**/*.pb.go
+!internal/protocol/*.pb.go # keep generated files in canonical location
+
+# Misc
+workspace
