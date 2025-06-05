@@ -1,6 +1,8 @@
 /** NEWFILE **/
 package world
 
+import "github.com/annel0/mmo-game/internal/vec"
+
 // BlockLayer определяет логический "этаж" внутри чанка.
 // LayerActive (1) остаётся слоем по умолчанию и совместим
 // со старым однослойным кодом.
@@ -19,3 +21,10 @@ const (
 
 	MaxLayers // всегда последний: количество слоев
 )
+
+// BlockCoord идентифицирует блок по слою и локальным координатам внутри чанка.
+// Используется в картах изменений, метаданных и тикаемых блоков.
+type BlockCoord struct {
+	Layer BlockLayer
+	Pos   vec.Vec2
+}

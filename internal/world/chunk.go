@@ -18,23 +18,31 @@ type Chunk struct {
 	// Blocks3D[layer][x][y]
 	Blocks3D [MaxLayers][16][16]block.BlockID
 
-	Metadata      map[vec.Vec2]map[string]interface{} // Метаданные (пока только ACTIVE)
-	Changes       map[vec.Vec2]struct{}               // Измененные блоки (ACTIVE)
-	Tickable      map[vec.Vec2]struct{}               // Тикаемые блоки (ACTIVE)
-	ChangeCounter int                                 // Счетчик изменений
-	Mu            sync.RWMutex                        // Мьютекс для безопасного доступа
+	// DEPRECATED поля для совместимости
+	Metadata map[vec.Vec2]map[string]interface{} // Метаданные слоя ACTIVE (deprecated)
+	Changes  map[vec.Vec2]struct{}               // Измененные блоки в ACTIVE (deprecated)
+	Tickable map[vec.Vec2]struct{}               // Тикаемые блоки в ACTIVE (deprecated)
+
+	// Новые карты, индексируемые по BlockCoord (layer+pos)
+	Metadata3D map[BlockCoord]map[string]interface{}
+	Changes3D  map[BlockCoord]struct{}
+	Tickable3D map[BlockCoord]struct{}
+
+	ChangeCounter int          // Счетчик изменений
+	Mu            sync.RWMutex // Мьютекс для безопасного доступа
 }
 
 // NewChunk создаёт новый чанк с указанными координатами
 func NewChunk(coords vec.Vec2) *Chunk {
 	return &Chunk{
-		Coords:   coords,
-		Changes:  make(map[vec.Vec2]struct{}),
-		Metadata: make(map[vec.Vec2]map[string]interface{}),
-		// Blocks и Blocks3D инициализируются нулевыми значениями (Air).
+		Coords:        coords,
+		Changes:       make(map[vec.Vec2]struct{}),
+		Metadata:      make(map[vec.Vec2]map[string]interface{}),
+		Metadata3D:    make(map[BlockCoord]map[string]interface{}),
+		Changes3D:     make(map[BlockCoord]struct{}),
+		Tickable3D:    make(map[BlockCoord]struct{}),
 		Mu:            sync.RWMutex{},
 		ChangeCounter: 0,
-		Tickable:      make(map[vec.Vec2]struct{}),
 	}
 }
 
@@ -75,7 +83,14 @@ func (c *Chunk) GetBlockMetadata(local vec.Vec2) map[string]interface{} {
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 
-	if metadata, exists := c.Metadata[local]; exists {
+	if metadata, exists := c.Metadata3D[BlockCoord{Layer: LayerActive, Pos: local}]; exists {
+		// Создаем копию метаданных
+		result := make(map[string]interface{}, len(metadata))
+		for k, v := range metadata {
+			result[k] = v
+		}
+		return result
+	} else if metadata, exists := c.Metadata[local]; exists {
 		// Создаем копию метаданных
 		result := make(map[string]interface{}, len(metadata))
 		for k, v := range metadata {
@@ -92,7 +107,11 @@ func (c *Chunk) GetBlockMetadataValue(local vec.Vec2, key string) (interface{}, 
 	c.Mu.RLock()
 	defer c.Mu.RUnlock()
 
-	if metadata, exists := c.Metadata[local]; exists {
+	if metadata, exists := c.Metadata3D[BlockCoord{Layer: LayerActive, Pos: local}]; exists {
+		if value, ok := metadata[key]; ok {
+			return value, true
+		}
+	} else if metadata, exists := c.Metadata[local]; exists {
 		if value, ok := metadata[key]; ok {
 			return value, true
 		}
@@ -127,9 +146,9 @@ func (c *Chunk) SetBlock(local vec.Vec2, blockID block.BlockID) {
 
 	// Обновляем тикаемые блоки
 	if exists && behavior.NeedsTick() {
-		c.Tickable[local] = struct{}{}
+		c.Tickable3D[BlockCoord{Layer: LayerActive, Pos: local}] = struct{}{}
 	} else {
-		delete(c.Tickable, local)
+		delete(c.Tickable3D, BlockCoord{Layer: LayerActive, Pos: local})
 	}
 }
 
@@ -146,14 +165,14 @@ func (c *Chunk) SetBlockWithBehavior(local vec.Vec2, behavior block.BlockBehavio
 
 	// Обновляем тикаемые блоки
 	if behavior.NeedsTick() {
-		c.Tickable[local] = struct{}{}
+		c.Tickable3D[BlockCoord{Layer: LayerActive, Pos: local}] = struct{}{}
 	} else {
-		delete(c.Tickable, local)
+		delete(c.Tickable3D, BlockCoord{Layer: LayerActive, Pos: local})
 	}
 
 	// Создаем метаданные для блока
-	if _, exists := c.Metadata[local]; !exists {
-		c.Metadata[local] = behavior.CreateMetadata()
+	if _, exists := c.Metadata3D[BlockCoord{Layer: LayerActive, Pos: local}]; !exists {
+		c.Metadata3D[BlockCoord{Layer: LayerActive, Pos: local}] = behavior.CreateMetadata()
 	}
 }
 
@@ -219,4 +238,55 @@ func (c *Chunk) SetBlockLayer(layer BlockLayer, local vec.Vec2, blockID block.Bl
 
 	c.Changes[local] = struct{}{}
 	c.ChangeCounter++
+}
+
+// SetBlockMetadataLayer устанавливает метаданные блока в заданном слое.
+func (c *Chunk) SetBlockMetadataLayer(layer BlockLayer, local vec.Vec2, key string, value interface{}) {
+	coord := BlockCoord{Layer: layer, Pos: local}
+
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	if _, exists := c.Metadata3D[coord]; !exists {
+		c.Metadata3D[coord] = make(map[string]interface{})
+	}
+	c.Metadata3D[coord][key] = value
+	c.Changes3D[coord] = struct{}{}
+
+	// Совместимость: если слой ACTIVE, дублируем
+	if layer == LayerActive {
+		if _, ok := c.Metadata[local]; !ok {
+			c.Metadata[local] = make(map[string]interface{})
+		}
+		c.Metadata[local][key] = value
+		c.Changes[local] = struct{}{}
+	}
+}
+
+// GetBlockMetadataLayer возвращает метаданные блока на указанном слое.
+func (c *Chunk) GetBlockMetadataLayer(layer BlockLayer, local vec.Vec2) map[string]interface{} {
+	coord := BlockCoord{Layer: layer, Pos: local}
+
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+
+	if meta, ok := c.Metadata3D[coord]; ok {
+		// copy
+		m := make(map[string]interface{}, len(meta))
+		for k, v := range meta {
+			m[k] = v
+		}
+		return m
+	}
+
+	if layer == LayerActive {
+		if meta, ok := c.Metadata[local]; ok {
+			m := make(map[string]interface{}, len(meta))
+			for k, v := range meta {
+				m[k] = v
+			}
+			return m
+		}
+	}
+	return make(map[string]interface{})
 }
