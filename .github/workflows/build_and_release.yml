@@ -1,5 +1,4 @@
-/** NEWFILE **/
-name: Build & Release
+name: "Build and Release"
 
 on:
   # CI для Pull Request'ов и push в основную ветку
