@@ -31,6 +31,7 @@ const (
 	// Декоративные блоки (начиная с 100)
 	FlowerBlockID BlockID = 100 // Цветок
 	TreeBlockID   BlockID = 101 // Дерево
+	CactusBlockID BlockID = 102 // Кактус, 2-слойный
 
 	// Интерактивные блоки (начиная с 200)
 	ChestBlockID BlockID = 200 // Сундук
