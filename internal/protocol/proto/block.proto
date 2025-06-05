@@ -10,8 +10,9 @@ import "internal/protocol/proto/common.proto";
 message BlockUpdateRequest {
   Vec2 position = 1;
   uint32 block_id = 2;
-  JsonMetadata metadata = 3; // JSON метаданные для блока
-  string action = 4; // Тип действия с блоком (mine, use, place, и т.д.)
+  BlockLayer layer = 3;
+  JsonMetadata metadata = 4; // JSON метаданные для блока
+  string action = 5; // Тип действия с блоком (mine, use, place, и т.д.)
 }
 
 // Ответ на обновление блока
@@ -20,8 +21,9 @@ message BlockUpdateResponse {
   string message = 2;
   uint32 block_id = 3;
   Vec2 position = 4;
-  JsonMetadata metadata = 5; // JSON метаданные для блока
-  repeated string effects = 6; // Эффекты, связанные с обновлением блока
+  BlockLayer layer = 5;
+  JsonMetadata metadata = 6; // JSON метаданные для блока
+  repeated string effects = 7; // Эффекты, связанные с обновлением блока
 }
 
 // Данные о блоке
