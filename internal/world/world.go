@@ -338,6 +338,11 @@ func (wm *WorldManager) SaveWorld(force bool) {
 
 // GetBlock возвращает блок по глобальным координатам
 func (wm *WorldManager) GetBlock(pos vec.Vec2) Block {
+	return wm.GetBlockLayer(pos, LayerActive)
+}
+
+// GetBlockLayer возвращает блок на указанном слое.
+func (wm *WorldManager) GetBlockLayer(pos vec.Vec2, layer BlockLayer) Block {
 	bigChunkCoords := pos.ToBigChunkCoords()
 
 	wm.mu.RLock()
@@ -345,9 +350,7 @@ func (wm *WorldManager) GetBlock(pos vec.Vec2) Block {
 	wm.mu.RUnlock()
 
 	if !exists {
-		// Если BigChunk не существует, создаём его
 		wm.mu.Lock()
-		// Проверяем еще раз под блокировкой записи
 		bigChunk, exists = wm.bigChunks[bigChunkCoords]
 		if !exists {
 			bigChunk = wm.createBigChunk(bigChunkCoords)
@@ -355,38 +358,27 @@ func (wm *WorldManager) GetBlock(pos vec.Vec2) Block {
 		wm.mu.Unlock()
 	}
 
-	// Получаем координаты чанка и локальные координаты
 	chunkCoords := pos.ToChunkCoords()
 	localPos := pos.LocalInChunk()
 
-	// Получаем чанк
 	bigChunk.mu.RLock()
 	chunk, exists := bigChunk.chunks[chunkCoords]
 	bigChunk.mu.RUnlock()
 
 	if !exists {
-		// Если чанк не существует, генерируем его
 		chunk = wm.generateChunk(chunkCoords)
-
 		bigChunk.mu.Lock()
-		// Проверяем еще раз под блокировкой записи
-		_, exists := bigChunk.chunks[chunkCoords]
-		if !exists {
+		if _, exists := bigChunk.chunks[chunkCoords]; !exists {
 			bigChunk.chunks[chunkCoords] = chunk
 		}
 		bigChunk.mu.Unlock()
 	}
 
-	// Получаем блок и его метаданные
 	chunk.Mu.RLock()
-	blockID := chunk.Blocks[localPos.X][localPos.Y]
+	blockID := chunk.GetBlockLayer(layer, localPos)
 	var metadata map[string]interface{}
 
-	if meta, exists := chunk.Metadata[localPos]; exists {
-		metadata = meta
-	} else {
-		metadata = make(map[string]interface{})
-	}
+	metadata = chunk.GetBlockMetadataLayer(layer, localPos)
 	chunk.Mu.RUnlock()
 
 	return Block{ID: blockID, Payload: metadata}
@@ -394,22 +386,46 @@ func (wm *WorldManager) GetBlock(pos vec.Vec2) Block {
 
 // SetBlock устанавливает блок по глобальным координатам
 func (wm *WorldManager) SetBlock(pos vec.Vec2, block Block) {
-	// Создаем событие изменения блока
-	event := BlockEvent{
-		EventType:   EventTypeBlockChange,
-		Position:    pos,
-		Block:       block,
-		SourceChunk: pos.ToChunkCoords(),
-		TargetChunk: pos.ToChunkCoords(),
-		Data:        block.Payload,
+	wm.SetBlockLayer(pos, LayerActive, block)
+}
+
+// SetBlockLayer устанавливает блок на указанном слое (пока без событий).
+func (wm *WorldManager) SetBlockLayer(pos vec.Vec2, layer BlockLayer, block Block) {
+	bigChunkCoords := pos.ToBigChunkCoords()
+
+	wm.mu.RLock()
+	bigChunk, exists := wm.bigChunks[bigChunkCoords]
+	wm.mu.RUnlock()
+
+	if !exists {
+		wm.mu.Lock()
+		bigChunk, exists = wm.bigChunks[bigChunkCoords]
+		if !exists {
+			bigChunk = wm.createBigChunk(bigChunkCoords)
+		}
+		wm.mu.Unlock()
 	}
 
-	// Отправляем событие в глобальную очередь
-	select {
-	case wm.globalEvents <- event:
-		// Успешно отправлено
-	default:
-		// Канал переполнен (можно добавить логирование)
+	chunkCoords := pos.ToChunkCoords()
+	localPos := pos.LocalInChunk()
+
+	bigChunk.mu.RLock()
+	chunk, exists := bigChunk.chunks[chunkCoords]
+	bigChunk.mu.RUnlock()
+
+	if !exists {
+		chunk = wm.generateChunk(chunkCoords)
+		bigChunk.mu.Lock()
+		if _, exists := bigChunk.chunks[chunkCoords]; !exists {
+			bigChunk.chunks[chunkCoords] = chunk
+		}
+		bigChunk.mu.Unlock()
+	}
+
+	chunk.SetBlockLayer(layer, localPos, block.ID)
+
+	if len(block.Payload) > 0 {
+		chunk.SetBlockMetadataLayer(layer, localPos, "payload", block.Payload) // simplistic
 	}
 }
 

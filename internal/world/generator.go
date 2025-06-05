@@ -73,28 +73,37 @@ func (wg *WorldGenerator) GenerateChunk(coords vec.Vec2) *Chunk {
 			biome := wg.getBiomeType(height, biomeValue)
 
 			// Определяем тип блока на основе биома
-			blockID := wg.getBlockForBiome(biome, height, rng)
+			activeID := wg.getBlockForBiome(biome, height, rng)
 
-			// Устанавливаем блок
+			// Простейшая логика пола
+			floorID := block.DirtBlockID
+			if biome == BiomeMountains {
+				floorID = block.StoneBlockID
+			}
+
 			localPos := vec.Vec2{X: x, Y: y}
-			chunk.SetBlock(localPos, blockID)
+
+			// Слой "пол" всегда заполняем
+			chunk.SetBlockLayer(LayerFloor, localPos, floorID)
+			// Слой Active – ландшафт/вода/т.п.
+			chunk.SetBlockLayer(LayerActive, localPos, activeID)
+			// Также дублируем для старого поля, чтобы древний код не ломался
+			chunk.SetBlock(localPos, activeID)
 
 			// Если это равнины и подходящее место, добавляем дерево с некоторой вероятностью
 			if biome == BiomePlains && rng.Float64() < wg.ForestDensity {
 				wg.placeTreeMetadata(chunk, localPos, rng)
 			}
 
-			// Инициализируем метаданные для блока, если нужно
-			behavior, exists := block.Get(blockID)
+			// Инициализируем метаданные для блока active-слоя, если нужно
+			behavior, exists := block.Get(activeID)
 			if exists && behavior.NeedsTick() {
-				// Сохраняем в список тикаемых
-				chunk.Tickable[localPos] = struct{}{}
+				chunk.Tickable3D[BlockCoord{Layer: LayerActive, Pos: localPos}] = struct{}{}
 
-				// Инициализируем метаданные, если они еще не установлены
-				if _, hasMetadata := chunk.Metadata[localPos]; !hasMetadata {
+				if _, has := chunk.Metadata3D[BlockCoord{Layer: LayerActive, Pos: localPos}]; !has {
 					metadata := behavior.CreateMetadata()
 					if len(metadata) > 0 {
-						chunk.Metadata[localPos] = metadata
+						chunk.Metadata3D[BlockCoord{Layer: LayerActive, Pos: localPos}] = metadata
 					}
 				}
 			}
