@@ -25,6 +25,7 @@
 
 # IDE & editor configs
 .idea/
+.claude
 .vscode/
 *.sw?
 
@@ -40,3 +41,4 @@
 
 # Misc
 workspace
+data
