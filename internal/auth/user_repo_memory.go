@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -24,23 +25,19 @@ func NewMemoryUserRepo() (*MemoryUserRepo, error) {
 		nextID: 1,
 	}
 
-	// Create default test user (username=test, password=test)
-	passwordHash, err := HashPassword("test")
+	// Create first admin user if no users exist (for initial setup)
+	// This should be replaced with proper admin creation in production
+	adminHash, err := HashPassword("ChangeMe123!")
 	if err != nil {
 		return nil, err
 	}
-	_, err = repo.CreateUser("test", passwordHash, false)
+	_, err = repo.CreateUser("admin", adminHash, true)
 	if err != nil {
 		return nil, err
 	}
-
-	// Also create admin user (username=admin, password=admin)
-	adminHash, err := HashPassword("admin")
-	if err != nil {
-		return nil, err
-	}
-	_, _ = repo.CreateUser("admin", adminHash, true)
-
+	
+	log.Printf("SECURITY WARNING: Default admin user created with password 'ChangeMe123!' - CHANGE IMMEDIATELY!")
+	
 	return repo, nil
 }
 

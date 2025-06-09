@@ -13,6 +13,12 @@ func Get(id BlockID) (BlockBehavior, bool) {
 	return behavior, exists
 }
 
+// IsValidBlockID проверяет, является ли ID допустимым идентификатором блока
+func IsValidBlockID(id BlockID) bool {
+	_, exists := registry[id]
+	return exists
+}
+
 // BlockID представляет идентификатор блока
 type BlockID uint16
 

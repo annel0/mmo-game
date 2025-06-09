@@ -450,7 +450,11 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMsg) {
 		}
 		user = u
 		isAdmin = u.IsAdmin
-		token = auth.GenerateMockJWT(u)
+		token, err = auth.GenerateJWT(u)
+		if err != nil {
+			loginFail(fmt.Sprintf("failed to generate token: %v", err))
+			return
+		}
 	}
 
 	// Создаем игровую сущность
@@ -512,14 +516,74 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 		return
 	}
 
-	// Обрабатываем обновление блока
+	// Валидируем позицию
+	if blockUpdate.Position == nil {
+		log.Printf("Недействительное обновление блока: позиция nil")
+		return
+	}
+
+	// Проверяем, что игрок имеет право изменять блоки в данной позиции
 	position := vec.Vec2{X: int(blockUpdate.Position.X), Y: int(blockUpdate.Position.Y)}
+	
+	// Получаем позицию игрока
+	gh.mu.RLock()
+	entityID, hasEntity := gh.playerEntities[connID]
+	gh.mu.RUnlock()
+	
+	if !hasEntity {
+		log.Printf("Игрок не имеет сущности для проверки прав: %s", connID)
+		return
+	}
+	
+	playerEntity, exists := gh.entityManager.GetEntity(entityID)
+	if !exists {
+		log.Printf("Сущность игрока не найдена для проверки прав: %s", connID)
+		return
+	}
+
+	// Проверяем дистанцию - игрок может изменять блоки только в радиусе 10 блоков
+	playerPos := playerEntity.Position
+	distance := math.Sqrt(math.Pow(float64(position.X-playerPos.X), 2) + math.Pow(float64(position.Y-playerPos.Y), 2))
+	if distance > 10 {
+		log.Printf("Игрок %s пытается изменить блок слишком далеко: %.2f блоков", connID, distance)
+		response := &protocol.BlockUpdateResponse{
+			Success: false,
+			Message: "Block is too far away",
+		}
+		if gh.tcpServer != nil {
+			if conn, exists := gh.tcpServer.connections[connID]; exists {
+				conn.sendMessage(protocol.MsgBlockUpdateResponse, response)
+			}
+		}
+		return
+	}
+
+	// Валидируем ID блока
+	if !block.IsValidBlockID(block.BlockID(blockUpdate.BlockId)) {
+		log.Printf("Недействительный ID блока: %d", blockUpdate.BlockId)
+		response := &protocol.BlockUpdateResponse{
+			Success: false,
+			Message: "Invalid block ID",
+		}
+		if gh.tcpServer != nil {
+			if conn, exists := gh.tcpServer.connections[connID]; exists {
+				conn.sendMessage(protocol.MsgBlockUpdateResponse, response)
+			}
+		}
+		return
+	}
 
 	// Создаем блок для мира
 	worldBlock := world.NewBlock(block.BlockID(blockUpdate.BlockId))
 
 	// Устанавливаем метаданные если есть
 	if blockUpdate.Metadata != nil && blockUpdate.Metadata.JsonData != "" {
+		// Ограничиваем размер метаданных
+		if len(blockUpdate.Metadata.JsonData) > 1024 {
+			log.Printf("Метаданные блока слишком большие: %d байт", len(blockUpdate.Metadata.JsonData))
+			return
+		}
+		
 		metadata, err := protocol.JsonToMap(blockUpdate.Metadata.JsonData)
 		if err == nil {
 			worldBlock.Payload = metadata

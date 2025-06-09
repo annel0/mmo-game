@@ -158,20 +158,16 @@ func (em *EntityManager) GetBehavior(entityType EntityType) (EntityBehavior, boo
 
 // UpdateEntities обновляет все активные сущности
 func (em *EntityManager) UpdateEntities(dt float64, api EntityAPI) {
-	// Сначала создаем копию списка сущностей, чтобы избежать блокировки на всё время обновления
-	entities := em.getActiveEntities()
+	// Держим блокировку на всё время обновления для избежания race conditions
+	em.mu.Lock()
+	defer em.mu.Unlock()
 
 	// Обновляем каждую сущность
-	for _, entity := range entities {
-		if behavior, exists := em.GetBehavior(entity.Type); exists {
-			behavior.Update(api, entity, dt)
-
-			// Обновляем позицию в хранилище сущностей
-			em.mu.Lock()
-			if entityInMap, exists := em.entities[entity.ID]; exists {
-				entityInMap.Position = entity.PrecisePos.ToVec2()
+	for _, entity := range em.entities {
+		if entity.Active {
+			if behavior, exists := em.behaviors[entity.Type]; exists {
+				behavior.Update(api, entity, dt)
 			}
-			em.mu.Unlock()
 		}
 	}
 }
@@ -382,19 +378,3 @@ func calculateCollisionPoint(pos1, pos2 vec.Vec2Float) vec.Vec2Float {
 	}
 }
 
-// getActiveEntities возвращает копию списка активных сущностей
-func (em *EntityManager) getActiveEntities() []*Entity {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-
-	entities := make([]*Entity, 0, len(em.entities))
-	for _, entity := range em.entities {
-		if entity.Active {
-			// Создаём копию сущности для безопасного обновления
-			entityCopy := *entity
-			entities = append(entities, &entityCopy)
-		}
-	}
-
-	return entities
-}

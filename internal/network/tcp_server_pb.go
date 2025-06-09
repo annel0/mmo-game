@@ -7,22 +7,35 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/annel0/mmo-game/internal/protocol"
 	"github.com/annel0/mmo-game/internal/world"
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	// MaxConnections - максимальное количество одновременных подключений
+	MaxConnections = 1000
+	// MaxConnectionsPerIP - максимальное количество подключений с одного IP
+	MaxConnectionsPerIP = 5
+	// ConnectionTimeout - таймаут для неактивных подключений
+	ConnectionTimeout = 5 * time.Minute
+)
+
 // TCPServerPB представляет TCP сервер с поддержкой Protocol Buffers
 type TCPServerPB struct {
-	listener     net.Listener
-	connections  map[string]*TCPConnectionPB
-	worldManager *world.WorldManager
-	gameHandler  *GameHandlerPB
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	serializer   *protocol.MessageSerializer
+	listener        net.Listener
+	connections     map[string]*TCPConnectionPB
+	connectionsByIP map[string]int32 // IP -> count of connections
+	totalConnections int32
+	worldManager    *world.WorldManager
+	gameHandler     *GameHandlerPB
+	mu              sync.RWMutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	serializer      *protocol.MessageSerializer
 }
 
 // TCPConnectionPB представляет подключение клиента по TCP
@@ -46,12 +59,13 @@ func NewTCPServerPB(address string, worldManager *world.WorldManager) (*TCPServe
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &TCPServerPB{
-		listener:     listener,
-		connections:  make(map[string]*TCPConnectionPB),
-		worldManager: worldManager,
-		ctx:          ctx,
-		cancel:       cancel,
-		serializer:   protocol.NewMessageSerializer(),
+		listener:        listener,
+		connections:     make(map[string]*TCPConnectionPB),
+		connectionsByIP: make(map[string]int32),
+		worldManager:    worldManager,
+		ctx:             ctx,
+		cancel:          cancel,
+		serializer:      protocol.NewMessageSerializer(),
 	}, nil
 }
 
@@ -93,6 +107,12 @@ func (s *TCPServerPB) acceptLoop() {
 				continue
 			}
 
+			// Проверяем лимиты перед принятием соединения
+			if !s.canAcceptConnection(conn) {
+				conn.Close()
+				continue
+			}
+
 			s.handleConnection(conn)
 		}
 	}
@@ -117,12 +137,17 @@ func (s *TCPServerPB) handleConnection(conn net.Conn) {
 	// Добавляем соединение в карту
 	s.mu.Lock()
 	s.connections[connID] = connection
+	
+	// Обновляем счетчики
+	ip := getIPFromAddr(conn.RemoteAddr())
+	s.connectionsByIP[ip]++
+	atomic.AddInt32(&s.totalConnections, 1)
 	s.mu.Unlock()
 
 	// Запускаем обработку сообщений
 	go connection.readLoop()
 
-	log.Printf("Новое TCP соединение: %s", connID)
+	log.Printf("Новое TCP соединение: %s (всего: %d)", connID, atomic.LoadInt32(&s.totalConnections))
 }
 
 // removeConnection удаляет соединение из списка
@@ -130,8 +155,20 @@ func (s *TCPServerPB) removeConnection(connID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	delete(s.connections, connID)
-	log.Printf("TCP соединение закрыто: %s", connID)
+	if conn, exists := s.connections[connID]; exists {
+		// Обновляем счетчики
+		ip := getIPFromAddr(conn.conn.RemoteAddr())
+		if count := s.connectionsByIP[ip]; count > 0 {
+			s.connectionsByIP[ip]--
+			if s.connectionsByIP[ip] == 0 {
+				delete(s.connectionsByIP, ip)
+			}
+		}
+		atomic.AddInt32(&s.totalConnections, -1)
+		
+		delete(s.connections, connID)
+		log.Printf("TCP соединение закрыто: %s (осталось: %d)", connID, atomic.LoadInt32(&s.totalConnections))
+	}
 }
 
 // broadcastMessage отправляет сообщение всем подключенным клиентам
@@ -276,4 +313,36 @@ func (c *TCPConnectionPB) sendMessage(msgType protocol.MsgType, payload proto.Me
 func (c *TCPConnectionPB) close() {
 	c.cancel()
 	c.conn.Close()
+}
+
+// canAcceptConnection проверяет, можем ли мы принять новое соединение
+func (s *TCPServerPB) canAcceptConnection(conn net.Conn) bool {
+	// Проверяем общий лимит подключений
+	if atomic.LoadInt32(&s.totalConnections) >= MaxConnections {
+		log.Printf("Превышен лимит подключений: %d", MaxConnections)
+		return false
+	}
+
+	// Проверяем лимит подключений с одного IP
+	ip := getIPFromAddr(conn.RemoteAddr())
+	s.mu.RLock()
+	count := s.connectionsByIP[ip]
+	s.mu.RUnlock()
+	
+	if count >= MaxConnectionsPerIP {
+		log.Printf("Превышен лимит подключений с IP %s: %d", ip, MaxConnectionsPerIP)
+		return false
+	}
+
+	return true
+}
+
+// getIPFromAddr извлекает IP адрес из net.Addr
+func getIPFromAddr(addr net.Addr) string {
+	if tcpAddr, ok := addr.(*net.TCPAddr); ok {
+		return tcpAddr.IP.String()
+	}
+	// Fallback для других типов адресов
+	host, _, _ := net.SplitHostPort(addr.String())
+	return host
 }
