@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"crypto/rand"
 	"log"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type GameServerPB struct {
 	udpServer    *UDPServerPB
 	worldManager *world.WorldManager
 	gameHandler  *GameHandlerPB
+	gameAuth     *auth.GameAuthenticator
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -40,6 +42,18 @@ func NewGameServerPB(tcpAddr, udpAddr string) (*GameServerPB, error) {
 		return nil, err
 	}
 
+	// === СОЗДАЕМ GAME AUTHENTICATOR ===
+	// Генерируем JWT секрет
+	jwtSecret := make([]byte, 32)
+	if _, err := rand.Read(jwtSecret); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	// Создаем аутентификатор
+	gameAuth := auth.NewGameAuthenticator(userRepo, jwtSecret)
+	log.Printf("🔐 GameAuthenticator инициализирован с JWT поддержкой")
+
 	// Создаем обработчик игровых сообщений
 	gameHandler := NewGameHandlerPB(worldManager, entityManager, userRepo)
 
@@ -59,14 +73,17 @@ func NewGameServerPB(tcpAddr, udpAddr string) (*GameServerPB, error) {
 
 	// Связываем компоненты вместе
 	tcpServer.SetGameHandler(gameHandler)
+	udpServer.SetGameHandler(gameHandler) // Добавляем связь UDP сервера с GameHandler
 	gameHandler.SetTCPServer(tcpServer)
 	gameHandler.SetUDPServer(udpServer)
+	gameHandler.SetGameAuthenticator(gameAuth)
 
 	return &GameServerPB{
 		tcpServer:    tcpServer,
 		udpServer:    udpServer,
 		worldManager: worldManager,
 		gameHandler:  gameHandler,
+		gameAuth:     gameAuth,
 		ctx:          ctx,
 		cancel:       cancel,
 	}, nil

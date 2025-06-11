@@ -26,16 +26,16 @@ const (
 
 // TCPServerPB представляет TCP сервер с поддержкой Protocol Buffers
 type TCPServerPB struct {
-	listener        net.Listener
-	connections     map[string]*TCPConnectionPB
-	connectionsByIP map[string]int32 // IP -> count of connections
+	listener         net.Listener
+	connections      map[string]*TCPConnectionPB
+	connectionsByIP  map[string]int32 // IP -> count of connections
 	totalConnections int32
-	worldManager    *world.WorldManager
-	gameHandler     *GameHandlerPB
-	mu              sync.RWMutex
-	ctx             context.Context
-	cancel          context.CancelFunc
-	serializer      *protocol.MessageSerializer
+	worldManager     *world.WorldManager
+	gameHandler      *GameHandlerPB
+	mu               sync.RWMutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	serializer       *protocol.MessageSerializer
 }
 
 // TCPConnectionPB представляет подключение клиента по TCP
@@ -137,7 +137,7 @@ func (s *TCPServerPB) handleConnection(conn net.Conn) {
 	// Добавляем соединение в карту
 	s.mu.Lock()
 	s.connections[connID] = connection
-	
+
 	// Обновляем счетчики
 	ip := getIPFromAddr(conn.RemoteAddr())
 	s.connectionsByIP[ip]++
@@ -165,14 +165,14 @@ func (s *TCPServerPB) removeConnection(connID string) {
 			}
 		}
 		atomic.AddInt32(&s.totalConnections, -1)
-		
+
 		delete(s.connections, connID)
 		log.Printf("TCP соединение закрыто: %s (осталось: %d)", connID, atomic.LoadInt32(&s.totalConnections))
 	}
 }
 
 // broadcastMessage отправляет сообщение всем подключенным клиентам
-func (s *TCPServerPB) broadcastMessage(msgType protocol.MsgType, payload proto.Message) {
+func (s *TCPServerPB) broadcastMessage(msgType protocol.MessageType, payload proto.Message) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -182,7 +182,7 @@ func (s *TCPServerPB) broadcastMessage(msgType protocol.MsgType, payload proto.M
 }
 
 // sendToPlayer отправляет сообщение конкретному игроку
-func (s *TCPServerPB) sendToPlayer(playerID uint64, msgType protocol.MsgType, payload proto.Message) {
+func (s *TCPServerPB) sendToPlayer(playerID uint64, msgType protocol.MessageType, payload proto.Message) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -195,13 +195,16 @@ func (s *TCPServerPB) sendToPlayer(playerID uint64, msgType protocol.MsgType, pa
 }
 
 // sendToClient отправляет сообщение конкретному клиенту по ID соединения
-func (s *TCPServerPB) sendToClient(connID string, msgType protocol.MsgType, payload proto.Message) {
+func (s *TCPServerPB) sendToClient(connID string, msgType protocol.MessageType, payload proto.Message) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// Находим соединение по ID
 	if conn, exists := s.connections[connID]; exists {
+
 		conn.sendMessage(msgType, payload)
+	} else {
+		log.Printf("❌ TCP: Соединение %s не найдено!", connID)
 	}
 }
 
@@ -265,11 +268,11 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 	}
 
 	// Проверяем, что соединение авторизовано и токен валиден
-	if msg.Type != protocol.MsgAuth {
+	if msg.Type != protocol.MessageType_AUTH {
 		if !c.server.gameHandler.IsSessionValid(c.id) {
 			log.Printf("Недействительная или отсутствующая сессия для %s", c.id)
 			errorResponse := &protocol.AuthResponse{Success: false, Message: "invalid session"}
-			c.sendMessage(protocol.MsgAuthResponse, errorResponse)
+			c.sendMessage(protocol.MessageType_AUTH_RESPONSE, errorResponse)
 			return
 		}
 	}
@@ -278,7 +281,7 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 	c.server.gameHandler.HandleMessage(c.id, msg)
 
 	// Устанавливаем playerID для соединения если это сообщение авторизации
-	if msg.Type == protocol.MsgAuth {
+	if msg.Type == protocol.MessageType_AUTH {
 		// После обработки авторизации получаем ID игрока из карты соединений
 		c.server.mu.RLock()
 		for id, conn := range c.server.connections {
@@ -292,11 +295,12 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 }
 
 // sendMessage отправляет сообщение клиенту
-func (c *TCPConnectionPB) sendMessage(msgType protocol.MsgType, payload proto.Message) {
+func (c *TCPConnectionPB) sendMessage(msgType protocol.MessageType, payload proto.Message) {
+
 	// Сериализуем сообщение
 	data, err := c.serializer.SerializeMessage(msgType, payload)
 	if err != nil {
-		log.Printf("Ошибка сериализации сообщения: %v", err)
+		log.Printf("❌ TCP: Ошибка сериализации сообщения: %v", err)
 		return
 	}
 
@@ -305,8 +309,14 @@ func (c *TCPConnectionPB) sendMessage(msgType protocol.MsgType, payload proto.Me
 	binary.BigEndian.PutUint32(header, uint32(len(data)))
 
 	// Отправляем сообщение
-	c.conn.Write(header)
-	c.conn.Write(data)
+	_, err1 := c.conn.Write(header)
+	_, err2 := c.conn.Write(data)
+
+	if err1 != nil || err2 != nil {
+		log.Printf("❌ TCP: Ошибка отправки сообщения клиенту %s: %v, %v", c.id, err1, err2)
+		return
+	}
+
 }
 
 // close закрывает соединение
@@ -328,7 +338,7 @@ func (s *TCPServerPB) canAcceptConnection(conn net.Conn) bool {
 	s.mu.RLock()
 	count := s.connectionsByIP[ip]
 	s.mu.RUnlock()
-	
+
 	if count >= MaxConnectionsPerIP {
 		log.Printf("Превышен лимит подключений с IP %s: %d", ip, MaxConnectionsPerIP)
 		return false

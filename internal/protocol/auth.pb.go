@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v3.21.12
-// source: auth.proto
+// source: proto/auth.proto
 
 package protocol
 
@@ -23,17 +23,22 @@ const (
 
 // Запрос на аутентификацию
 type AuthRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
-	Password      *string                `protobuf:"bytes,2,opt,name=password,proto3,oneof" json:"password,omitempty"`
-	Token         *string                `protobuf:"bytes,3,opt,name=token,proto3,oneof" json:"token,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Username string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Password *string                `protobuf:"bytes,2,opt,name=password,proto3,oneof" json:"password,omitempty"`
+	Token    *string                `protobuf:"bytes,3,opt,name=token,proto3,oneof" json:"token,omitempty"`
+	// === НОВЫЕ ПОЛЯ ===
+	JwtToken      *string  `protobuf:"bytes,4,opt,name=jwt_token,json=jwtToken,proto3,oneof" json:"jwt_token,omitempty"`          // JWT токен для повторной аутентификации
+	RequestJwt    bool     `protobuf:"varint,5,opt,name=request_jwt,json=requestJwt,proto3" json:"request_jwt,omitempty"`         // Запрос на получение JWT токена
+	ClientVersion string   `protobuf:"bytes,6,opt,name=client_version,json=clientVersion,proto3" json:"client_version,omitempty"` // Версия клиента
+	Capabilities  []string `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                        // Возможности клиента ["jwt", "rest", "webhooks"]
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AuthRequest) Reset() {
 	*x = AuthRequest{}
-	mi := &file_auth_proto_msgTypes[0]
+	mi := &file_proto_auth_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +50,7 @@ func (x *AuthRequest) String() string {
 func (*AuthRequest) ProtoMessage() {}
 
 func (x *AuthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_proto_msgTypes[0]
+	mi := &file_proto_auth_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +63,7 @@ func (x *AuthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthRequest.ProtoReflect.Descriptor instead.
 func (*AuthRequest) Descriptor() ([]byte, []int) {
-	return file_auth_proto_rawDescGZIP(), []int{0}
+	return file_proto_auth_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AuthRequest) GetUsername() string {
@@ -82,21 +87,54 @@ func (x *AuthRequest) GetToken() string {
 	return ""
 }
 
+func (x *AuthRequest) GetJwtToken() string {
+	if x != nil && x.JwtToken != nil {
+		return *x.JwtToken
+	}
+	return ""
+}
+
+func (x *AuthRequest) GetRequestJwt() bool {
+	if x != nil {
+		return x.RequestJwt
+	}
+	return false
+}
+
+func (x *AuthRequest) GetClientVersion() string {
+	if x != nil {
+		return x.ClientVersion
+	}
+	return ""
+}
+
+func (x *AuthRequest) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
+}
+
 // Ответ на аутентификацию
 type AuthResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	PlayerId      uint64                 `protobuf:"varint,3,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
-	Token         string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	WorldName     string                 `protobuf:"bytes,5,opt,name=world_name,json=worldName,proto3" json:"world_name,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Success   bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message   string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	PlayerId  uint64                 `protobuf:"varint,3,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	Token     string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"` // Старый токен (для совместимости)
+	WorldName string                 `protobuf:"bytes,5,opt,name=world_name,json=worldName,proto3" json:"world_name,omitempty"`
+	// === НОВЫЕ ПОЛЯ ===
+	JwtToken           *string     `protobuf:"bytes,6,opt,name=jwt_token,json=jwtToken,proto3,oneof" json:"jwt_token,omitempty"`                         // JWT токен
+	JwtExpiresAt       int64       `protobuf:"varint,7,opt,name=jwt_expires_at,json=jwtExpiresAt,proto3" json:"jwt_expires_at,omitempty"`                // Время истечения JWT (Unix timestamp)
+	ServerCapabilities []string    `protobuf:"bytes,8,rep,name=server_capabilities,json=serverCapabilities,proto3" json:"server_capabilities,omitempty"` // Возможности сервера
+	ServerInfo         *ServerInfo `protobuf:"bytes,9,opt,name=server_info,json=serverInfo,proto3" json:"server_info,omitempty"`                         // Информация о сервере
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *AuthResponse) Reset() {
 	*x = AuthResponse{}
-	mi := &file_auth_proto_msgTypes[1]
+	mi := &file_proto_auth_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -108,7 +146,7 @@ func (x *AuthResponse) String() string {
 func (*AuthResponse) ProtoMessage() {}
 
 func (x *AuthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_proto_msgTypes[1]
+	mi := &file_proto_auth_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -121,7 +159,7 @@ func (x *AuthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AuthResponse.ProtoReflect.Descriptor instead.
 func (*AuthResponse) Descriptor() ([]byte, []int) {
-	return file_auth_proto_rawDescGZIP(), []int{1}
+	return file_proto_auth_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *AuthResponse) GetSuccess() bool {
@@ -159,72 +197,200 @@ func (x *AuthResponse) GetWorldName() string {
 	return ""
 }
 
-var File_auth_proto protoreflect.FileDescriptor
+func (x *AuthResponse) GetJwtToken() string {
+	if x != nil && x.JwtToken != nil {
+		return *x.JwtToken
+	}
+	return ""
+}
 
-const file_auth_proto_rawDesc = "" +
+func (x *AuthResponse) GetJwtExpiresAt() int64 {
+	if x != nil {
+		return x.JwtExpiresAt
+	}
+	return 0
+}
+
+func (x *AuthResponse) GetServerCapabilities() []string {
+	if x != nil {
+		return x.ServerCapabilities
+	}
+	return nil
+}
+
+func (x *AuthResponse) GetServerInfo() *ServerInfo {
+	if x != nil {
+		return x.ServerInfo
+	}
+	return nil
+}
+
+// Информация о сервере
+type ServerInfo struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Version          string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Environment      string                 `protobuf:"bytes,2,opt,name=environment,proto3" json:"environment,omitempty"` // "dev", "staging", "production"
+	RestApiAvailable bool                   `protobuf:"varint,3,opt,name=rest_api_available,json=restApiAvailable,proto3" json:"rest_api_available,omitempty"`
+	RestApiEndpoint  string                 `protobuf:"bytes,4,opt,name=rest_api_endpoint,json=restApiEndpoint,proto3" json:"rest_api_endpoint,omitempty"` // "http://localhost:8088"
+	Features         []string               `protobuf:"bytes,5,rep,name=features,proto3" json:"features,omitempty"`                                        // ["webhooks", "analytics", "admin_panel"]
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ServerInfo) Reset() {
+	*x = ServerInfo{}
+	mi := &file_proto_auth_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerInfo) ProtoMessage() {}
+
+func (x *ServerInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_auth_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerInfo.ProtoReflect.Descriptor instead.
+func (*ServerInfo) Descriptor() ([]byte, []int) {
+	return file_proto_auth_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ServerInfo) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *ServerInfo) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *ServerInfo) GetRestApiAvailable() bool {
+	if x != nil {
+		return x.RestApiAvailable
+	}
+	return false
+}
+
+func (x *ServerInfo) GetRestApiEndpoint() string {
+	if x != nil {
+		return x.RestApiEndpoint
+	}
+	return ""
+}
+
+func (x *ServerInfo) GetFeatures() []string {
+	if x != nil {
+		return x.Features
+	}
+	return nil
+}
+
+var File_proto_auth_proto protoreflect.FileDescriptor
+
+const file_proto_auth_proto_rawDesc = "" +
 	"\n" +
-	"\n" +
-	"auth.proto\x12\bprotocol\"|\n" +
+	"\x10proto/auth.proto\x12\bprotocol\"\x98\x02\n" +
 	"\vAuthRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
 	"\bpassword\x18\x02 \x01(\tH\x00R\bpassword\x88\x01\x01\x12\x19\n" +
-	"\x05token\x18\x03 \x01(\tH\x01R\x05token\x88\x01\x01B\v\n" +
+	"\x05token\x18\x03 \x01(\tH\x01R\x05token\x88\x01\x01\x12 \n" +
+	"\tjwt_token\x18\x04 \x01(\tH\x02R\bjwtToken\x88\x01\x01\x12\x1f\n" +
+	"\vrequest_jwt\x18\x05 \x01(\bR\n" +
+	"requestJwt\x12%\n" +
+	"\x0eclient_version\x18\x06 \x01(\tR\rclientVersion\x12\"\n" +
+	"\fcapabilities\x18\a \x03(\tR\fcapabilitiesB\v\n" +
 	"\t_passwordB\b\n" +
-	"\x06_token\"\x94\x01\n" +
+	"\x06_tokenB\f\n" +
+	"\n" +
+	"_jwt_token\"\xd2\x02\n" +
 	"\fAuthResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1b\n" +
 	"\tplayer_id\x18\x03 \x01(\x04R\bplayerId\x12\x14\n" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x12\x1d\n" +
 	"\n" +
-	"world_name\x18\x05 \x01(\tR\tworldNameB.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
+	"world_name\x18\x05 \x01(\tR\tworldName\x12 \n" +
+	"\tjwt_token\x18\x06 \x01(\tH\x00R\bjwtToken\x88\x01\x01\x12$\n" +
+	"\x0ejwt_expires_at\x18\a \x01(\x03R\fjwtExpiresAt\x12/\n" +
+	"\x13server_capabilities\x18\b \x03(\tR\x12serverCapabilities\x125\n" +
+	"\vserver_info\x18\t \x01(\v2\x14.protocol.ServerInfoR\n" +
+	"serverInfoB\f\n" +
+	"\n" +
+	"_jwt_token\"\xbe\x01\n" +
+	"\n" +
+	"ServerInfo\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\tR\aversion\x12 \n" +
+	"\venvironment\x18\x02 \x01(\tR\venvironment\x12,\n" +
+	"\x12rest_api_available\x18\x03 \x01(\bR\x10restApiAvailable\x12*\n" +
+	"\x11rest_api_endpoint\x18\x04 \x01(\tR\x0frestApiEndpoint\x12\x1a\n" +
+	"\bfeatures\x18\x05 \x03(\tR\bfeaturesB.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
 
 var (
-	file_auth_proto_rawDescOnce sync.Once
-	file_auth_proto_rawDescData []byte
+	file_proto_auth_proto_rawDescOnce sync.Once
+	file_proto_auth_proto_rawDescData []byte
 )
 
-func file_auth_proto_rawDescGZIP() []byte {
-	file_auth_proto_rawDescOnce.Do(func() {
-		file_auth_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_auth_proto_rawDesc), len(file_auth_proto_rawDesc)))
+func file_proto_auth_proto_rawDescGZIP() []byte {
+	file_proto_auth_proto_rawDescOnce.Do(func() {
+		file_proto_auth_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_auth_proto_rawDesc), len(file_proto_auth_proto_rawDesc)))
 	})
-	return file_auth_proto_rawDescData
+	return file_proto_auth_proto_rawDescData
 }
 
-var file_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
-var file_auth_proto_goTypes = []any{
+var file_proto_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_proto_auth_proto_goTypes = []any{
 	(*AuthRequest)(nil),  // 0: protocol.AuthRequest
 	(*AuthResponse)(nil), // 1: protocol.AuthResponse
+	(*ServerInfo)(nil),   // 2: protocol.ServerInfo
 }
-var file_auth_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+var file_proto_auth_proto_depIdxs = []int32{
+	2, // 0: protocol.AuthResponse.server_info:type_name -> protocol.ServerInfo
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_auth_proto_init() }
-func file_auth_proto_init() {
-	if File_auth_proto != nil {
+func init() { file_proto_auth_proto_init() }
+func file_proto_auth_proto_init() {
+	if File_proto_auth_proto != nil {
 		return
 	}
-	file_auth_proto_msgTypes[0].OneofWrappers = []any{}
+	file_proto_auth_proto_msgTypes[0].OneofWrappers = []any{}
+	file_proto_auth_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_auth_proto_rawDesc), len(file_auth_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_auth_proto_rawDesc), len(file_proto_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_auth_proto_goTypes,
-		DependencyIndexes: file_auth_proto_depIdxs,
-		MessageInfos:      file_auth_proto_msgTypes,
+		GoTypes:           file_proto_auth_proto_goTypes,
+		DependencyIndexes: file_proto_auth_proto_depIdxs,
+		MessageInfos:      file_proto_auth_proto_msgTypes,
 	}.Build()
-	File_auth_proto = out.File
-	file_auth_proto_goTypes = nil
-	file_auth_proto_depIdxs = nil
+	File_proto_auth_proto = out.File
+	file_proto_auth_proto_goTypes = nil
+	file_proto_auth_proto_depIdxs = nil
 }

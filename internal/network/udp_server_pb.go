@@ -160,10 +160,12 @@ func (s *UDPServerPB) handlePacket(client *UDPClientPB, data []byte) {
 
 	// Обрабатываем в зависимости от типа сообщения
 	switch msg.Type {
-	case protocol.MsgPing:
+	case protocol.MessageType_PING:
 		s.handlePing(client, msg)
-	case protocol.MsgEntityMove:
+	case protocol.MessageType_ENTITY_MOVE:
 		s.handleEntityMove(client, msg)
+	case protocol.MessageType_CHUNK_REQUEST:
+		s.handleChunkRequest(client, msg)
 	default:
 		// Для остальных типов сообщений логируем без обработки
 		log.Printf("Неподдерживаемый тип UDP-сообщения: %d", msg.Type)
@@ -171,7 +173,7 @@ func (s *UDPServerPB) handlePacket(client *UDPClientPB, data []byte) {
 }
 
 // handlePing обрабатывает пинг-сообщения
-func (s *UDPServerPB) handlePing(client *UDPClientPB, msg *protocol.GameMsg) {
+func (s *UDPServerPB) handlePing(client *UDPClientPB, msg *protocol.GameMessage) {
 	// Десериализуем пинг
 	ping := &protocol.PingMessage{}
 	if err := s.serializer.DeserializePayload(msg, ping); err != nil {
@@ -187,7 +189,7 @@ func (s *UDPServerPB) handlePing(client *UDPClientPB, msg *protocol.GameMsg) {
 	}
 
 	// Сериализуем и отправляем ответ
-	data, err := s.serializer.SerializeMessage(protocol.MsgPong, pong)
+	data, err := s.serializer.SerializeMessage(protocol.MessageType_PING, pong)
 	if err != nil {
 		log.Printf("Ошибка сериализации Pong: %v", err)
 		return
@@ -208,7 +210,7 @@ func (s *UDPServerPB) handlePing(client *UDPClientPB, msg *protocol.GameMsg) {
 }
 
 // handleEntityMove обрабатывает сообщения о перемещении сущностей
-func (s *UDPServerPB) handleEntityMove(client *UDPClientPB, msg *protocol.GameMsg) {
+func (s *UDPServerPB) handleEntityMove(client *UDPClientPB, msg *protocol.GameMessage) {
 	// Поскольку обработка движения требует доступа к мировым данным,
 	// перенаправляем сообщение в игровой обработчик, если он существует
 	if s.gameHandler != nil {
@@ -260,26 +262,28 @@ func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.Enti
 		return
 	}
 
-	// Создаем данные сущностей для отправки
-	entityDataList := make([]map[string]interface{}, 0, len(entities))
+	// Создаем данные сущностей для protobuf
+	entityDataList := make([]*protocol.EntityData, 0, len(entities))
 	for _, entity := range entities {
-		entityDataList = append(entityDataList, map[string]interface{}{
-			"id": entity.ID,
-			"position": map[string]int{
-				"x": entity.Position.X,
-				"y": entity.Position.Y,
+		entityData := &protocol.EntityData{
+			Id: entity.ID,
+			Position: &protocol.Vec2{
+				X: int32(entity.Position.X),
+				Y: int32(entity.Position.Y),
 			},
-			"active": true,
-		})
+			Type:   protocol.EntityType_ENTITY_UNKNOWN, // Используем дефолтный тип
+			Active: true,
+		}
+		entityDataList = append(entityDataList, entityData)
 	}
 
-	// Создаем сообщение
-	message := map[string]interface{}{
-		"entities": entityDataList,
+	// Создаем protobuf сообщение о перемещении
+	moveMessage := &protocol.EntityMoveMessage{
+		Entities: entityDataList,
 	}
 
 	// Сериализуем сообщение для отправки
-	data, err := s.serializer.SerializeMessage(protocol.MsgEntityMove, protocol.WrapMessage(message))
+	data, err := s.serializer.SerializeMessage(protocol.MessageType_ENTITY_MOVE, moveMessage)
 	if err != nil {
 		log.Printf("Ошибка сериализации сообщения о перемещении: %v", err)
 		return
@@ -297,4 +301,58 @@ func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.Enti
 	if err != nil {
 		log.Printf("Ошибка отправки UDP-пакета игроку %d: %v", playerID, err)
 	}
+}
+
+// handleError обрабатывает сообщения об ошибках
+func (s *UDPServerPB) handleError(client *UDPClientPB, msg *protocol.GameMessage) {
+	log.Printf("Получено сообщение об ошибке от игрока %d", client.playerID)
+	// В простейшем случае просто логируем
+}
+
+// handleRegister обрабатывает сообщения регистрации
+func (s *UDPServerPB) handleRegister(client *UDPClientPB, msg *protocol.GameMessage) {
+	// Перенаправляем сообщение в игровой обработчик, если он существует
+	if s.gameHandler != nil {
+		// Находим ID соединения по playerID
+		connID := s.findConnectionIDByPlayerID(client.playerID)
+		if connID == "" {
+			log.Printf("Не найдено TCP-соединение для игрока %d", client.playerID)
+			return
+		}
+
+		// Передаем сообщение в обработчик игры
+		s.gameHandler.HandleMessage(connID, msg)
+	} else {
+		log.Printf("GameHandler не инициализирован, пропуск обработки регистрации")
+	}
+}
+
+// handleChunkRequest обрабатывает запросы чанков
+func (s *UDPServerPB) handleChunkRequest(client *UDPClientPB, msg *protocol.GameMessage) {
+	// Перенаправляем сообщение в игровой обработчик, если он существует
+	if s.gameHandler != nil {
+		// Находим ID соединения по playerID
+		connID := s.findConnectionIDByPlayerID(client.playerID)
+		if connID == "" {
+			log.Printf("Не найдено TCP-соединение для игрока %d", client.playerID)
+			return
+		}
+
+		// Передаем сообщение в обработчик игры
+		s.gameHandler.HandleMessage(connID, msg)
+	} else {
+		log.Printf("GameHandler не инициализирован, пропуск обработки запроса чанка")
+	}
+}
+
+// handlePong обрабатывает ответные пинг-сообщения
+func (s *UDPServerPB) handlePong(client *UDPClientPB, msg *protocol.GameMessage) {
+	// Десериализуем ответное пинг
+	pong := &protocol.PongMessage{}
+	if err := s.serializer.DeserializePayload(msg, pong); err != nil {
+		log.Printf("Ошибка десериализации Pong: %v", err)
+		return
+	}
+
+	log.Printf("Получено ответное пинг-сообщение от игрока %d", client.playerID)
 }
