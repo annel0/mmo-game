@@ -25,6 +25,7 @@ type GameHandlerPB struct {
 	worldManager  *world.WorldManager
 	entityManager *entity.EntityManager
 	userRepo      auth.UserRepository
+	gameAuth      *auth.GameAuthenticator
 
 	tcpServer *TCPServerPB
 	udpServer *UDPServerPB
@@ -75,20 +76,26 @@ func (gh *GameHandlerPB) SetUDPServer(server *UDPServerPB) {
 	gh.udpServer = server
 }
 
+// SetGameAuthenticator устанавливает аутентификатор
+func (gh *GameHandlerPB) SetGameAuthenticator(gameAuth *auth.GameAuthenticator) {
+	gh.gameAuth = gameAuth
+
+}
+
 // HandleMessage обрабатывает входящие сообщения от клиентов
-func (gh *GameHandlerPB) HandleMessage(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) HandleMessage(connID string, msg *protocol.GameMessage) {
 	switch msg.Type {
-	case protocol.MsgAuth:
+	case protocol.MessageType_AUTH:
 		gh.handleAuth(connID, msg)
-	case protocol.MsgBlockUpdate:
+	case protocol.MessageType_BLOCK_UPDATE:
 		gh.handleBlockUpdate(connID, msg)
-	case protocol.MsgChunkRequest:
+	case protocol.MessageType_CHUNK_REQUEST:
 		gh.handleChunkRequest(connID, msg)
-	case protocol.MsgEntityAction:
+	case protocol.MessageType_ENTITY_ACTION:
 		gh.handleEntityAction(connID, msg)
-	case protocol.MsgEntityMove:
+	case protocol.MessageType_ENTITY_MOVE:
 		gh.handleEntityMove(connID, msg)
-	case protocol.MsgChat:
+	case protocol.MessageType_CHAT:
 		gh.handleChat(connID, msg)
 	default:
 		log.Printf("Неизвестный тип сообщения: %d", msg.Type)
@@ -119,7 +126,7 @@ func (gh *GameHandlerPB) OnClientDisconnect(connID string) {
 			EntityId: entityID,
 			Reason:   "disconnected",
 		}
-		gh.broadcastMessage(protocol.MsgEntityDespawn, despawnMsg)
+		gh.broadcastMessage(protocol.MessageType_ENTITY_DESPAWN, despawnMsg)
 	}
 
 	log.Printf("Клиент отключен: %s", connID)
@@ -365,7 +372,7 @@ func (gh *GameHandlerPB) sendEntityMoveUpdate(entity *entity.Entity) {
 	// Отправляем всем, кроме владельца
 	for connID := range gh.tcpServer.connections {
 		if connID != playerConnID {
-			gh.sendTCPMessage(connID, protocol.MsgEntityMove, moveMsg)
+			gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_MOVE, moveMsg)
 		}
 	}
 }
@@ -378,93 +385,114 @@ func (gh *GameHandlerPB) IsSessionValid(connID string) bool {
 	if !ok {
 		return false
 	}
+
+	// Всегда требуем валидный JWT токен
+	if sess.Token == "" {
+		return false
+	}
+
+	// Проверяем JWT токен
 	pid, valid, _ := auth.ValidateJWT(sess.Token)
 	return valid && pid == sess.PlayerID
 }
 
-// handleAuth обрабатывает аутентификацию / регистрацию и создает игровую сущность
-func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMsg) {
+// handleAuth обрабатывает аутентификацию с использованием GameAuthenticator
+func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
+	// Проверяем, что GameAuthenticator инициализирован
+	if gh.gameAuth == nil {
+		log.Printf("❌ GameAuthenticator не инициализирован")
+		resp := &protocol.AuthResponse{Success: false, Message: "Server authentication error"}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
+		return
+	}
+
 	authMsg := &protocol.AuthRequest{}
 	if err := gh.serializer.DeserializePayload(msg, authMsg); err != nil {
-		log.Printf("Ошибка десериализации Auth: %v", err)
+		log.Printf("❌ Ошибка десериализации Auth: %v", err)
+		resp := &protocol.AuthResponse{Success: false, Message: "Invalid request format"}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
 		return
 	}
 
 	// Если уже имеется валидная сессия – пропускаем повторную авторизацию
 	if gh.IsSessionValid(connID) {
-		log.Printf("Повторная авторизация от %s игнорируется", connID)
+		log.Printf("⚠️ Повторная авторизация от %s игнорируется", connID)
 		return
 	}
 
-	var (
-		user      *auth.User
-		playerID  uint64
-		token     string
-		isAdmin   bool
-		loginFail = func(reason string) {
-			resp := &protocol.AuthResponse{Success: false, Message: reason}
-			gh.sendTCPMessage(connID, protocol.MsgAuthResponse, resp)
-		}
-	)
+	// === НОВАЯ ЛОГИКА С GAME AUTHENTICATOR ===
+	// Выполняем аутентификацию через GameAuthenticator
+	password := ""
+	if authMsg.Password != nil {
+		password = *authMsg.Password
+	}
 
-	// branch 1: токен
-	if authMsg.Token != nil && *authMsg.Token != "" {
-		pid, valid, admin := auth.ValidateJWT(*authMsg.Token)
-		if !valid {
-			loginFail("invalid token")
-			return
-		}
-		isAdmin = admin
-		playerID = pid // Для mock JWT PID — псевдо-значение
+	authResult, err := gh.gameAuth.AuthenticateUser(authMsg.Username, password)
+	if err != nil {
+		log.Printf("❌ Ошибка при аутентификации: %v", err)
+		resp := &protocol.AuthResponse{Success: false, Message: "Authentication service error"}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
+		return
+	}
 
-		// Попробуем найти пользователя по username (может быть пусто)
-		username := authMsg.Username
-		if username == "" {
-			username = fmt.Sprintf("player%d", playerID)
+	// Если аутентификация не удалась
+	if !authResult.Success {
+		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResult.Message)
+		authResp := &protocol.AuthResponse{
+			Success: false,
+			Message: authResult.Message,
 		}
-		u, err := gh.userRepo.GetUserByUsername(username)
-		if err == auth.ErrUserNotFound {
-			// создаём
-			u, err = gh.userRepo.CreateUser(username, "", isAdmin)
-			if err != nil {
-				loginFail("repository error")
-				return
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
+		return
+	}
+
+	// Аутентификация успешна
+	username := authMsg.Username
+
+	// Определяем роль пользователя
+	isAdmin := false
+	serverCapabilities := make([]string, 0)
+	if len(authResult.Roles) > 0 {
+		for _, role := range authResult.Roles {
+			serverCapabilities = append(serverCapabilities, role)
+			if role == "admin" {
+				isAdmin = true
 			}
-		}
-		user = u
-		token = *authMsg.Token
-	} else {
-		// branch 2: username + password
-		if authMsg.Username == "" || authMsg.Password == nil {
-			loginFail("username/password required")
-			return
-		}
-		u, err := gh.userRepo.GetUserByUsername(authMsg.Username)
-		if err != nil {
-			loginFail("user not found")
-			return
-		}
-		if !auth.CheckPassword(u.PasswordHash, *authMsg.Password) {
-			loginFail("invalid credentials")
-			return
-		}
-		user = u
-		isAdmin = u.IsAdmin
-		token, err = auth.GenerateJWT(u)
-		if err != nil {
-			loginFail(fmt.Sprintf("failed to generate token: %v", err))
-			return
 		}
 	}
 
 	// Создаем игровую сущность
+	var entityID uint64
 	gh.mu.Lock()
-	if _, exists := gh.playerEntities[connID]; !exists {
-		entityID := gh.generateEntityID()
+	if existingEntityID, exists := gh.playerEntities[connID]; !exists {
+		// НЕ используем gh.generateEntityID() потому что мы уже в блокировке!
+		gh.lastEntityID++
+		entityID = gh.lastEntityID
 		gh.playerEntities[connID] = entityID
-		gh.playerAuth[entityID] = user.Username
-		// Сохраняем сессию
-		gh.sessions[connID] = &Session{PlayerID: entityID, Username: user.Username, Token: token, IsAdmin: isAdmin}
+		gh.playerAuth[entityID] = username
+
+		// Создаем AuthResponse с JWT токеном
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            authResult.Message,
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+			ServerInfo: &protocol.ServerInfo{
+				Version:     "1.0.0",
+				Environment: "development",
+			},
+		}
+
+		gh.sessions[connID] = &Session{
+			PlayerID: entityID,
+			Username: username,
+			Token:    authResult.Token,
+			IsAdmin:  isAdmin,
+		}
+
+		log.Printf("✅ Создана игровая сущность %d для пользователя %s", entityID, username)
 
 		// Создаем сущность игрока в мире
 		spawnPos := vec.Vec2{X: 0, Y: 0}
@@ -478,28 +506,36 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMsg) {
 			}
 			gh.tcpServer.mu.Unlock()
 		}
-		playerID = entityID
+
+		// Отправляем успешный ответ
+		log.Printf("✅ Аутентификация успешна для %s (ID: %d)", username, entityID)
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
+
 	} else {
-		playerID = gh.playerEntities[connID]
+		entityID = existingEntityID
+		log.Printf("⚠️ Игровая сущность уже существует для %s", connID)
+
+		// Отправляем ответ для существующей сессии
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            "Already authenticated",
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+		}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 	}
 	gh.mu.Unlock()
 
-	// Успешный ответ
-	resp := &protocol.AuthResponse{
-		Success:   true,
-		PlayerId:  playerID,
-		Message:   "Авторизация успешна",
-		Token:     token,
-		WorldName: "default",
-	}
-	gh.sendTCPMessage(connID, protocol.MsgAuthResponse, resp)
-
 	// Отправляем данные мира
-	gh.sendWorldDataToPlayer(connID, playerID)
+	if entityID, exists := gh.playerEntities[connID]; exists {
+		gh.sendWorldDataToPlayer(connID, entityID)
+	}
 }
 
 // handleBlockUpdate обрабатывает обновление блока
-func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMessage) {
 	blockUpdate := &protocol.BlockUpdateRequest{}
 	if err := gh.serializer.DeserializePayload(msg, blockUpdate); err != nil {
 		log.Printf("Ошибка десериализации BlockUpdate: %v", err)
@@ -524,17 +560,17 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 
 	// Проверяем, что игрок имеет право изменять блоки в данной позиции
 	position := vec.Vec2{X: int(blockUpdate.Position.X), Y: int(blockUpdate.Position.Y)}
-	
+
 	// Получаем позицию игрока
 	gh.mu.RLock()
 	entityID, hasEntity := gh.playerEntities[connID]
 	gh.mu.RUnlock()
-	
+
 	if !hasEntity {
 		log.Printf("Игрок не имеет сущности для проверки прав: %s", connID)
 		return
 	}
-	
+
 	playerEntity, exists := gh.entityManager.GetEntity(entityID)
 	if !exists {
 		log.Printf("Сущность игрока не найдена для проверки прав: %s", connID)
@@ -552,7 +588,7 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 		}
 		if gh.tcpServer != nil {
 			if conn, exists := gh.tcpServer.connections[connID]; exists {
-				conn.sendMessage(protocol.MsgBlockUpdateResponse, response)
+				conn.sendMessage(protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
 			}
 		}
 		return
@@ -567,7 +603,7 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 		}
 		if gh.tcpServer != nil {
 			if conn, exists := gh.tcpServer.connections[connID]; exists {
-				conn.sendMessage(protocol.MsgBlockUpdateResponse, response)
+				conn.sendMessage(protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
 			}
 		}
 		return
@@ -583,7 +619,7 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 			log.Printf("Метаданные блока слишком большие: %d байт", len(blockUpdate.Metadata.JsonData))
 			return
 		}
-		
+
 		metadata, err := protocol.JsonToMap(blockUpdate.Metadata.JsonData)
 		if err == nil {
 			worldBlock.Payload = metadata
@@ -603,11 +639,11 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMsg)
 		},
 	}
 
-	gh.sendTCPMessage(connID, protocol.MsgBlockUpdateResponse, response)
+	gh.sendTCPMessage(connID, protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
 }
 
 // handleChunkRequest обрабатывает запрос чанка
-func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMessage) {
 	chunkRequest := &protocol.ChunkRequest{}
 	if err := gh.serializer.DeserializePayload(msg, chunkRequest); err != nil {
 		log.Printf("Ошибка десериализации ChunkRequest: %v", err)
@@ -679,11 +715,11 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMsg
 	}
 
 	// Отправляем чанк
-	gh.sendTCPMessage(connID, protocol.MsgChunkData, chunkData)
+	gh.sendTCPMessage(connID, protocol.MessageType_CHUNK_DATA, chunkData)
 }
 
 // handleEntityAction обрабатывает действия сущности
-func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMessage) {
 	action := &protocol.EntityActionRequest{}
 	if err := gh.serializer.DeserializePayload(msg, action); err != nil {
 		log.Printf("Ошибка десериализации EntityAction: %v", err)
@@ -718,16 +754,16 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMsg
 		Message: message,
 	}
 
-	gh.sendTCPMessage(connID, protocol.MsgEntityActionResponse, response)
+	gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_ACTION_RESPONSE, response)
 
 	// Если действие успешно, оповещаем других игроков
 	if success {
-		gh.broadcastMessage(protocol.MsgEntityAction, action)
+		gh.broadcastMessage(protocol.MessageType_ENTITY_ACTION, action)
 	}
 }
 
 // handleEntityMove обрабатывает движение сущности
-func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessage) {
 	// Упрощенная обработка для примера
 	log.Printf("Получено сообщение о движении от %s", connID)
 
@@ -754,7 +790,7 @@ func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMsg) 
 }
 
 // handleChat обрабатывает сообщения чата
-func (gh *GameHandlerPB) handleChat(connID string, msg *protocol.GameMsg) {
+func (gh *GameHandlerPB) handleChat(connID string, msg *protocol.GameMessage) {
 	// Упрощенная обработка для примера
 	log.Printf("Получено сообщение чата от %s", connID)
 
@@ -770,7 +806,7 @@ func (gh *GameHandlerPB) handleChat(connID string, msg *protocol.GameMsg) {
 	}
 
 	// Отправляем простое сообщение всем
-	gh.broadcastMessage(protocol.MsgChatBroadcast, &protocol.ChatBroadcast{
+	gh.broadcastMessage(protocol.MessageType_CHAT_BROADCAST, &protocol.ChatBroadcast{
 		Type:       protocol.ChatType_CHAT_GLOBAL,
 		Message:    "Чат временно отключен",
 		SenderId:   entityID,
@@ -807,7 +843,7 @@ func (gh *GameHandlerPB) sendWorldDataToPlayer(connID string, playerID uint64) {
 	}
 
 	// Отправляем метаданные мира через сообщение с метаданными
-	gh.sendTCPMessage(connID, protocol.MsgChunkData, worldMetadata)
+	gh.sendTCPMessage(connID, protocol.MessageType_CHUNK_DATA, worldMetadata)
 
 	// Отправляем данные о других игроках в зоне видимости
 	// Получаем сущность игрока
@@ -858,7 +894,7 @@ func (gh *GameHandlerPB) sendWorldDataToPlayer(connID string, playerID uint64) {
 			Entities: spawnedEntities,
 		}
 
-		gh.sendTCPMessage(connID, protocol.MsgEntityMove, spawnMsg)
+		gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_MOVE, spawnMsg)
 	}
 }
 
@@ -909,7 +945,7 @@ func (gh *GameHandlerPB) sendInitialChunks(connID string, playerID uint64) {
 			}
 
 			// Отправляем данные чанка
-			gh.sendTCPMessage(connID, protocol.MsgChunkData, chunkData)
+			gh.sendTCPMessage(connID, protocol.MessageType_CHUNK_DATA, chunkData)
 
 			// Добавляем небольшую задержку, чтобы не перегружать клиента
 			time.Sleep(10 * time.Millisecond)
@@ -975,7 +1011,7 @@ func (gh *GameHandlerPB) sendWorldUpdates() {
 				Entities: entityDataList,
 			}
 
-			gh.sendTCPMessage(connID, protocol.MsgEntityMove, updateMsg)
+			gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_MOVE, updateMsg)
 		}
 	}
 }
@@ -1007,7 +1043,7 @@ func (gh *GameHandlerPB) spawnEntityWithID(entityType entity.EntityType, positio
 		Entity: entityData,
 	}
 
-	gh.broadcastMessage(protocol.MsgEntitySpawn, entitySpawn)
+	gh.broadcastMessage(protocol.MessageType_ENTITY_SPAWN, entitySpawn)
 
 	return entityID
 }
@@ -1022,7 +1058,7 @@ func (gh *GameHandlerPB) DespawnEntity(entityID uint64) {
 		EntityId: entityID,
 		Reason:   "deleted",
 	}
-	gh.broadcastMessage(protocol.MsgEntityDespawn, despawnMsg)
+	gh.broadcastMessage(protocol.MessageType_ENTITY_DESPAWN, despawnMsg)
 }
 
 // SendBlockUpdate отправляет обновление блока всем клиентам
@@ -1051,18 +1087,18 @@ func (gh *GameHandlerPB) SendBlockUpdate(blockPos vec.Vec2, block world.Block) {
 	}
 
 	// Отправляем всем клиентам
-	gh.broadcastMessage(protocol.MsgBlockUpdate, blockUpdate)
+	gh.broadcastMessage(protocol.MessageType_BLOCK_UPDATE, blockUpdate)
 }
 
 // broadcastMessage отправляет сообщение всем подключенным клиентам
-func (gh *GameHandlerPB) broadcastMessage(msgType protocol.MsgType, payload proto.Message) {
+func (gh *GameHandlerPB) broadcastMessage(msgType protocol.MessageType, payload proto.Message) {
 	if gh.tcpServer != nil {
 		gh.tcpServer.broadcastMessage(msgType, payload)
 	}
 }
 
 // sendTCPMessage отправляет сообщение конкретному клиенту через TCP
-func (gh *GameHandlerPB) sendTCPMessage(connID string, msgType protocol.MsgType, payload proto.Message) {
+func (gh *GameHandlerPB) sendTCPMessage(connID string, msgType protocol.MessageType, payload proto.Message) {
 	if gh.tcpServer != nil {
 		gh.tcpServer.sendToClient(connID, msgType, payload)
 	}

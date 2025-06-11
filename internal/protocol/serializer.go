@@ -18,7 +18,7 @@ func NewMessageSerializer() *MessageSerializer {
 }
 
 // SerializeMessage сериализует сообщение в формат Protocol Buffers
-func (ms *MessageSerializer) SerializeMessage(msgType MsgType, payload proto.Message) ([]byte, error) {
+func (ms *MessageSerializer) SerializeMessage(msgType MessageType, payload proto.Message) ([]byte, error) {
 	// Сериализуем полезную нагрузку
 	payloadData, err := proto.Marshal(payload)
 	if err != nil {
@@ -27,7 +27,7 @@ func (ms *MessageSerializer) SerializeMessage(msgType MsgType, payload proto.Mes
 
 	// Создаем GameMessage в соответствии с proto-определением
 	gameMessage := &GameMessage{
-		Type:      MessageType(msgType),
+		Type:      msgType,
 		Timestamp: time.Now().UnixNano(),
 		Sequence:  0, // Для простых сообщений не используем sequence
 		Payload:   payloadData,
@@ -43,24 +43,18 @@ func (ms *MessageSerializer) SerializeMessage(msgType MsgType, payload proto.Mes
 }
 
 // DeserializeMessage десериализует данные в GameMessage
-func (ms *MessageSerializer) DeserializeMessage(data []byte) (*GameMsg, error) {
+func (ms *MessageSerializer) DeserializeMessage(data []byte) (*GameMessage, error) {
 	// Десериализуем в GameMessage из proto-определения
 	protoMessage := &GameMessage{}
 	if err := proto.Unmarshal(data, protoMessage); err != nil {
 		return nil, fmt.Errorf("ошибка десериализации сообщения: %w", err)
 	}
 
-	// Конвертируем в наш внутренний тип GameMsg
-	gameMsg := &GameMsg{
-		Type:    MsgType(protoMessage.Type),
-		Payload: protoMessage.Payload,
-	}
-
-	return gameMsg, nil
+	return protoMessage, nil
 }
 
 // DeserializePayload десериализует полезную нагрузку сообщения в указанный тип
-func (ms *MessageSerializer) DeserializePayload(msg *GameMsg, payload proto.Message) error {
+func (ms *MessageSerializer) DeserializePayload(msg *GameMessage, payload proto.Message) error {
 	if err := proto.Unmarshal(msg.Payload, payload); err != nil {
 		return fmt.Errorf("ошибка десериализации полезной нагрузки: %w", err)
 	}

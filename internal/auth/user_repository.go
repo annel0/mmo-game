@@ -15,6 +15,13 @@ type UserRepository interface {
 	// Implementations must enforce unique usernames and return ErrUserExists on
 	// conflict.
 	CreateUser(username string, passwordHash string, isAdmin bool) (*User, error)
+
+	// === НОВЫЕ МЕТОДЫ ДЛЯ JWT ===
+	// GetUserByID returns a user by ID. If the user is not found, (nil, ErrUserNotFound) should be returned.
+	GetUserByID(id uint64) (*User, error)
+
+	// ValidateCredentials validates username and password, returns user if valid
+	ValidateCredentials(username, password string) (*User, error)
 }
 
 // Domain-level errors returned by the repository.

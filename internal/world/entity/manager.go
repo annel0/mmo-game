@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -378,3 +379,37 @@ func calculateCollisionPoint(pos1, pos2 vec.Vec2Float) vec.Vec2Float {
 	}
 }
 
+// GetStats возвращает статистику по сущностям
+func (em *EntityManager) GetStats() map[string]interface{} {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+
+	stats := make(map[string]interface{})
+
+	// Общее количество сущностей
+	stats["total_entities"] = len(em.entities)
+
+	// Активные сущности
+	activeCount := 0
+	for _, entity := range em.entities {
+		if entity.Active {
+			activeCount++
+		}
+	}
+	stats["active_entities"] = activeCount
+
+	// Статистика по типам сущностей
+	typeStats := make(map[string]int)
+	for _, entity := range em.entities {
+		if entity.Active {
+			entityType := fmt.Sprintf("type_%d", int(entity.Type))
+			typeStats[entityType]++
+		}
+	}
+	stats["entity_types"] = typeStats
+
+	// Количество зарегистрированных поведений
+	stats["registered_behaviors"] = len(em.behaviors)
+
+	return stats
+}
