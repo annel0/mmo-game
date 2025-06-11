@@ -45,3 +45,5 @@ data
 data/world/*
 data/world/
 client
+clientserver
+server

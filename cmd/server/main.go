@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	// Инициализируем систему логирования
+	// Инициализируем систему логирования (используем новый API)
 	if err := logging.InitDefaultLogger("server"); err != nil {
 		log.Fatalf("❌ Ошибка инициализации логирования: %v", err)
 	}

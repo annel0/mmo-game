@@ -252,6 +252,12 @@ func Error(format string, args ...interface{}) {
 	}
 }
 
+func Warn(format string, args ...interface{}) {
+	if defaultLogger != nil {
+		defaultLogger.Warn(format, args...)
+	}
+}
+
 func LogMessage(direction string, msgType protocol.MessageType, data []byte, details string) {
 	if defaultLogger != nil {
 		defaultLogger.LogMessage(direction, msgType, data, details)
