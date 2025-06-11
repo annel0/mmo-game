@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/annel0/mmo-game/internal/auth"
-	"github.com/annel0/mmo-game/internal/logging"
 	"github.com/annel0/mmo-game/internal/protocol"
 	"github.com/annel0/mmo-game/internal/vec"
 	"github.com/annel0/mmo-game/internal/world"
@@ -423,7 +422,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 
 	// === НОВАЯ ЛОГИКА С GAME AUTHENTICATOR ===
 	// Выполняем аутентификацию через GameAuthenticator
-	authResp, err := gh.gameAuth.Authenticate(authMsg)
+	password := ""
+	if authMsg.Password != nil {
+		password = *authMsg.Password
+	}
+
+	authResult, err := gh.gameAuth.AuthenticateUser(authMsg.Username, password)
 	if err != nil {
 		log.Printf("❌ Ошибка при аутентификации: %v", err)
 		resp := &protocol.AuthResponse{Success: false, Message: "Authentication service error"}
@@ -432,8 +436,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 	}
 
 	// Если аутентификация не удалась
-	if !authResp.Success {
-		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResp.Message)
+	if !authResult.Success {
+		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResult.Message)
+		authResp := &protocol.AuthResponse{
+			Success: false,
+			Message: authResult.Message,
+		}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 		return
 	}
@@ -443,11 +451,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 
 	// Определяем роль пользователя
 	isAdmin := false
-	if len(authResp.ServerCapabilities) > 0 {
-		for _, cap := range authResp.ServerCapabilities {
-			if cap == "admin" {
+	serverCapabilities := make([]string, 0)
+	if len(authResult.Roles) > 0 {
+		for _, role := range authResult.Roles {
+			serverCapabilities = append(serverCapabilities, role)
+			if role == "admin" {
 				isAdmin = true
-				break
 			}
 		}
 	}
@@ -462,34 +471,24 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		gh.playerEntities[connID] = entityID
 		gh.playerAuth[entityID] = username
 
-		// Сохраняем сессию с JWT токеном
-		token := ""
-		if authResp.JwtToken != nil {
-			token = *authResp.JwtToken
-		} else {
-			// Если GameAuthenticator не предоставил JWT токен, создаем его принудительно
-			user := &auth.User{
-				ID:       entityID,
-				Username: username,
-				IsAdmin:  isAdmin,
-			}
-			jwtToken, err := auth.GenerateJWT(user)
-			if err != nil {
-				log.Printf("❌ Ошибка создания JWT токена: %v", err)
-				resp := &protocol.AuthResponse{Success: false, Message: "Token generation error"}
-				gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
-				gh.mu.Unlock()
-				return
-			}
-			token = jwtToken
-			// Добавляем JWT в ответ для клиента
-			authResp.JwtToken = &token
+		// Создаем AuthResponse с JWT токеном
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            authResult.Message,
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+			ServerInfo: &protocol.ServerInfo{
+				Version:     "1.0.0",
+				Environment: "development",
+			},
 		}
 
 		gh.sessions[connID] = &Session{
 			PlayerID: entityID,
 			Username: username,
-			Token:    token,
+			Token:    authResult.Token,
 			IsAdmin:  isAdmin,
 		}
 
@@ -508,16 +507,26 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 			gh.tcpServer.mu.Unlock()
 		}
 
+		// Отправляем успешный ответ
+		log.Printf("✅ Аутентификация успешна для %s (ID: %d)", username, entityID)
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
+
 	} else {
 		entityID = existingEntityID
 		log.Printf("⚠️ Игровая сущность уже существует для %s", connID)
+
+		// Отправляем ответ для существующей сессии
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            "Already authenticated",
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+		}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 	}
 	gh.mu.Unlock()
-
-	// Отправляем успешный ответ, но с правильным ID сущности
-	authResp.PlayerId = entityID // Используем ID сущности, а не playerID от GameAuthenticator
-	log.Printf("✅ Аутентификация успешна для %s (ID: %d)", username, entityID)
-	gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 
 	// Отправляем данные мира
 	if entityID, exists := gh.playerEntities[connID]; exists {
@@ -637,25 +646,19 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMessage) {
 	chunkRequest := &protocol.ChunkRequest{}
 	if err := gh.serializer.DeserializePayload(msg, chunkRequest); err != nil {
-		logging.LogProtocolError(connID, err, msg.Payload)
 		log.Printf("Ошибка десериализации ChunkRequest: %v", err)
 		return
 	}
 
-	logging.LogChunkRequest(connID, int(chunkRequest.ChunkX), int(chunkRequest.ChunkY))
-
 	// Проверяем, что клиент авторизован
 	gh.mu.RLock()
-	entityID, exists := gh.playerEntities[connID]
+	_, exists := gh.playerEntities[connID]
 	gh.mu.RUnlock()
 
 	if !exists {
-		logging.LogWarn("Неавторизованный клиент запрашивает чанк: %s", connID)
 		log.Printf("Неавторизованный клиент запрашивает чанк: %s", connID)
 		return
 	}
-
-	logging.LogDebug("Обработка запроса чанка (%d,%d) от игрока %d", chunkRequest.ChunkX, chunkRequest.ChunkY, entityID)
 
 	// Получаем чанк из мира
 	chunkPos := vec.Vec2{X: int(chunkRequest.ChunkX), Y: int(chunkRequest.ChunkY)}
@@ -669,14 +672,12 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 		Blocks: make([]*protocol.BlockRow, 16), // 16x16 блоков в чанке
 	}
 
-	blockCount := 0
 	// Заполняем данные блоков
 	for y := 0; y < 16; y++ {
 		blockIds := make([]uint32, 16)
 		for x := 0; x < 16; x++ {
 			localPos := vec.Vec2{X: x, Y: y}
 			blockIds[x] = uint32(chunk.GetBlock(localPos))
-			blockCount++
 		}
 		chunkData.Blocks[y] = &protocol.BlockRow{
 			BlockIds: blockIds,
@@ -689,7 +690,6 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 	}
 
 	// Обрабатываем метаданные для каждого блока с метаданными
-	metadataCount := 0
 	for localPos, metadata := range chunk.Metadata {
 		if len(metadata) > 0 {
 			jsonStr, err := protocol.MapToJsonMetadata(metadata)
@@ -698,7 +698,6 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 				blockMetadata.BlockMetadata[key] = &protocol.JsonMetadata{
 					JsonData: jsonStr,
 				}
-				metadataCount++
 			}
 		}
 	}
@@ -713,11 +712,6 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 				JsonData: metadataJson,
 			}
 		}
-	}
-
-	logging.LogChunkData(connID, int(chunkRequest.ChunkX), int(chunkRequest.ChunkY), blockCount)
-	if metadataCount > 0 {
-		logging.LogDebug("Чанк (%d,%d) содержит %d блоков с метаданными", chunkRequest.ChunkX, chunkRequest.ChunkY, metadataCount)
 	}
 
 	// Отправляем чанк
@@ -771,7 +765,6 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMes
 // handleEntityMove обрабатывает движение сущности
 func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessage) {
 	// Упрощенная обработка для примера
-	logging.LogDebug("Получено сообщение о движении от %s", connID)
 	log.Printf("Получено сообщение о движении от %s", connID)
 
 	// Проверяем, что клиент авторизован
@@ -780,7 +773,6 @@ func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessa
 	gh.mu.RUnlock()
 
 	if !exists {
-		logging.LogWarn("Неавторизованный клиент перемещает сущность: %s", connID)
 		log.Printf("Неавторизованный клиент перемещает сущность: %s", connID)
 		return
 	}
@@ -788,18 +780,11 @@ func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessa
 	// Получаем сущность из менеджера
 	ent, exists := gh.entityManager.GetEntity(entityID)
 	if !exists {
-		logging.LogError("Сущность %d не найдена для соединения %s", entityID, connID)
 		log.Printf("Сущность %d не найдена", entityID)
 		return
 	}
 
-	// Логируем движение с подробностями
-	logging.LogEntityMovement(ent.ID, float64(ent.Position.X), float64(ent.Position.Y),
-		float64(ent.Position.X), float64(ent.Position.Y), 0)
-
 	// Просто логируем информацию о сущности
-	logging.LogDebug("Перемещение сущности %d типа %d в позиции (%d, %d)",
-		ent.ID, ent.Type, ent.Position.X, ent.Position.Y)
 	log.Printf("Перемещение сущности %d типа %d в позиции (%d, %d)",
 		ent.ID, ent.Type, ent.Position.X, ent.Position.Y)
 }

@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -80,21 +81,22 @@ func (s *UDPServerPB) readLoop() {
 		default:
 			n, addr, err := s.conn.ReadFromUDP(buffer)
 			if err != nil {
-				logging.LogError("Ошибка чтения UDP: %v", err)
+				logging.Error("Ошибка чтения UDP: %v", err)
 				log.Printf("Ошибка чтения UDP: %v", err)
 				continue
 			}
 
-			if n < 4 {
-				logging.LogWarn("Слишком короткий UDP-пакет от %s: %d байт", addr.String(), n)
+			logging.Debug("UDP: Получен пакет от %s (%d байт)", addr.String(), n)
+
+			if n < 8 { // Минимум 8 байт для playerID
+				logging.Error("Слишком короткий UDP-пакет: %d байт (минимум 8)", n)
 				log.Printf("Слишком короткий UDP-пакет: %d байт", n)
 				continue
 			}
 
-			logging.LogDebug("UDP: Получен пакет от %s размером %d байт", addr.String(), n)
-
-			// Первые 4 байта содержат playerID
+			// Первые 8 байт содержат playerID
 			playerID := binary.BigEndian.Uint64(buffer[:8])
+			logging.Debug("UDP: playerID=%d из пакета от %s", playerID, addr.String())
 
 			// Обновляем или создаем клиента
 			s.mu.Lock()
@@ -107,10 +109,11 @@ func (s *UDPServerPB) readLoop() {
 					lastSeen: time.Now(),
 				}
 				s.clients[client.id] = client
-				logging.LogInfo("UDP: Новый клиент %d (playerID: %d) подключен с %s", client.id, playerID, addr.String())
+				logging.Debug("UDP: Создан новый клиент для игрока %d", playerID)
 			} else {
 				client.lastSeen = time.Now()
 				client.addr = addr // Обновляем адрес на случай, если он изменился
+				logging.Debug("UDP: Обновлен существующий клиент для игрока %d", playerID)
 			}
 			s.mu.Unlock()
 
@@ -144,7 +147,6 @@ func (s *UDPServerPB) cleanupLoop() {
 			for id, client := range s.clients {
 				if time.Since(client.lastSeen) > 2*time.Minute {
 					delete(s.clients, id)
-					logging.LogInfo("UDP клиент %d (playerID: %d) удален из-за таймаута", id, client.playerID)
 					log.Printf("UDP клиент %d удален из-за таймаута", id)
 				}
 			}
@@ -155,34 +157,55 @@ func (s *UDPServerPB) cleanupLoop() {
 
 // handlePacket обрабатывает входящий UDP-пакет
 func (s *UDPServerPB) handlePacket(client *UDPClientPB, data []byte) {
-	// Логируем получение пакета
-	logging.LogMessage(client.addr.String(), "RECEIVED", "UDP", data)
+	logging.Debug("UDP: Обработка пакета от игрока %d (%d байт)", client.playerID, len(data))
 
 	// Десериализуем сообщение
 	msg, err := s.serializer.DeserializeMessage(data)
 	if err != nil {
-		logging.LogProtocolError(client.addr.String(), err, data)
+		logging.LogProtocolError("UDP message deserialization", err, data)
 		log.Printf("Ошибка десериализации UDP-сообщения: %v", err)
 		return
 	}
 
-	logging.LogDebug("UDP: Получен пакет от игрока %d типа %v (%d байт)", client.playerID, msg.Type, len(data))
-	log.Printf("Получен UDP-пакет от игрока %d типа %d (%d байт)", client.playerID, msg.Type, len(data))
+	// Логируем полученное сообщение
+	logging.LogMessage("RECV UDP", msg.Type, data, fmt.Sprintf("from player %d", client.playerID))
+
+	log.Printf("Получен UDP-пакет от игрока %d типа %d (%d байт)",
+		client.playerID, msg.Type, len(data))
+
+	// Логируем специфичные типы сообщений
+	switch msg.Type {
+	case protocol.MessageType_ENTITY_MOVE:
+		// Попробуем десериализовать EntityMoveMessage для логирования деталей
+		var moveMsg protocol.EntityMoveMessage
+		if err := s.serializer.DeserializePayload(msg, &moveMsg); err == nil {
+			for _, entity := range moveMsg.Entities {
+				if entity.Position != nil && entity.Velocity != nil {
+					logging.LogEntityMovement(entity.Id, float32(entity.Position.X), float32(entity.Position.Y), entity.Velocity.X, entity.Velocity.Y)
+				}
+			}
+		}
+	case protocol.MessageType_CHUNK_REQUEST:
+		// Попробуем десериализовать ChunkRequest для логирования деталей
+		var chunkReq protocol.ChunkRequest
+		if err := s.serializer.DeserializePayload(msg, &chunkReq); err == nil {
+			logging.LogChunkRequest(chunkReq.ChunkX, chunkReq.ChunkY, fmt.Sprintf("UDP from player %d", client.playerID))
+		}
+	case protocol.MessageType_PING:
+		logging.Debug("UDP PING от игрока %d", client.playerID)
+	}
 
 	// Обрабатываем в зависимости от типа сообщения
 	switch msg.Type {
 	case protocol.MessageType_PING:
-		logging.LogTrace("UDP: Обработка PING от игрока %d", client.playerID)
 		s.handlePing(client, msg)
 	case protocol.MessageType_ENTITY_MOVE:
-		logging.LogTrace("UDP: Обработка ENTITY_MOVE от игрока %d", client.playerID)
 		s.handleEntityMove(client, msg)
 	case protocol.MessageType_CHUNK_REQUEST:
-		logging.LogDebug("UDP: Обработка CHUNK_REQUEST от игрока %d", client.playerID)
 		s.handleChunkRequest(client, msg)
 	default:
 		// Для остальных типов сообщений логируем без обработки
-		logging.LogWarn("UDP: Неподдерживаемый тип сообщения %v от игрока %d", msg.Type, client.playerID)
+		logging.Debug("Неподдерживаемый тип UDP-сообщения: %s", msg.Type.String())
 		log.Printf("Неподдерживаемый тип UDP-сообщения: %d", msg.Type)
 	}
 }
@@ -226,22 +249,24 @@ func (s *UDPServerPB) handlePing(client *UDPClientPB, msg *protocol.GameMessage)
 
 // handleEntityMove обрабатывает сообщения о перемещении сущностей
 func (s *UDPServerPB) handleEntityMove(client *UDPClientPB, msg *protocol.GameMessage) {
+	logging.Debug("UDP: Обработка ENTITY_MOVE от игрока %d", client.playerID)
+
 	// Поскольку обработка движения требует доступа к мировым данным,
 	// перенаправляем сообщение в игровой обработчик, если он существует
 	if s.gameHandler != nil {
 		// Находим ID соединения по playerID
 		connID := s.findConnectionIDByPlayerID(client.playerID)
 		if connID == "" {
-			logging.LogError("UDP: Не найдено TCP-соединение для игрока %d", client.playerID)
+			logging.Error("Не найдено TCP-соединение для игрока %d", client.playerID)
 			log.Printf("Не найдено TCP-соединение для игрока %d", client.playerID)
 			return
 		}
 
-		logging.LogDebug("UDP: Перенаправление ENTITY_MOVE от игрока %d в GameHandler", client.playerID)
+		logging.Debug("Перенаправление ENTITY_MOVE от игрока %d в GameHandler (connID: %s)", client.playerID, connID)
 		// Передаем сообщение в обработчик игры
 		s.gameHandler.HandleMessage(connID, msg)
 	} else {
-		logging.LogError("UDP: GameHandler не инициализирован, пропуск обработки движения для игрока %d", client.playerID)
+		logging.Error("GameHandler не инициализирован, пропуск обработки движения")
 		log.Printf("GameHandler не инициализирован, пропуск обработки движения")
 	}
 }
@@ -270,12 +295,15 @@ func (s *UDPServerPB) SetGameHandler(handler *GameHandlerPB) {
 
 // SendEntityUpdatesPB отправляет обновления сущностей клиенту через UDP
 func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.EntityData) {
+	logging.Debug("UDP: Отправка обновлений сущностей игроку %d (%d сущностей)", playerID, len(entities))
+
 	// Находим клиента
 	s.mu.RLock()
 	client, exists := s.findClientByPlayerID(playerID)
 	s.mu.RUnlock()
 
 	if !exists {
+		logging.Error("Не удалось найти UDP-клиента для игрока %d", playerID)
 		log.Printf("Не удалось найти UDP-клиента для игрока %d", playerID)
 		return
 	}
@@ -303,9 +331,13 @@ func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.Enti
 	// Сериализуем сообщение для отправки
 	data, err := s.serializer.SerializeMessage(protocol.MessageType_ENTITY_MOVE, moveMessage)
 	if err != nil {
+		logging.LogProtocolError("UDP ENTITY_MOVE serialization", err, nil)
 		log.Printf("Ошибка сериализации сообщения о перемещении: %v", err)
 		return
 	}
+
+	// Логируем отправляемое сообщение
+	logging.LogMessage("SEND UDP", protocol.MessageType_ENTITY_MOVE, data, fmt.Sprintf("to player %d", playerID))
 
 	// Создаем заголовок с ID игрока
 	header := make([]byte, 8)
@@ -317,7 +349,10 @@ func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.Enti
 	// Отправляем данные
 	_, err = s.conn.WriteToUDP(packet, client.addr)
 	if err != nil {
+		logging.Error("Ошибка отправки UDP-пакета игроку %d: %v", playerID, err)
 		log.Printf("Ошибка отправки UDP-пакета игроку %d: %v", playerID, err)
+	} else {
+		logging.Debug("UDP ENTITY_MOVE успешно отправлено игроку %d (%d байт)", playerID, len(packet))
 	}
 }
 

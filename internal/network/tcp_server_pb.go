@@ -104,14 +104,14 @@ func (s *TCPServerPB) acceptLoop() {
 		default:
 			conn, err := s.listener.Accept()
 			if err != nil {
-				logging.LogError("Ошибка принятия соединения: %v", err)
+				logging.Error("Ошибка принятия соединения: %v", err)
 				log.Printf("Ошибка принятия соединения: %v", err)
 				continue
 			}
 
 			// Проверяем лимиты перед принятием соединения
 			if !s.canAcceptConnection(conn) {
-				logging.LogWarn("Соединение отклонено из-за лимитов: %s", conn.RemoteAddr().String())
+				logging.Warn("Соединение отклонено из-за лимитов: %s", conn.RemoteAddr().String())
 				conn.Close()
 				continue
 			}
@@ -151,7 +151,7 @@ func (s *TCPServerPB) handleConnection(conn net.Conn) {
 	go connection.readLoop()
 
 	totalConns := atomic.LoadInt32(&s.totalConnections)
-	logging.LogInfo("Новое TCP соединение: %s (всего: %d)", connID, totalConns)
+	logging.Info("Новое TCP соединение: %s (всего: %d)", connID, totalConns)
 	log.Printf("Новое TCP соединение: %s (всего: %d)", connID, totalConns)
 }
 
@@ -173,7 +173,7 @@ func (s *TCPServerPB) removeConnection(connID string) {
 
 		delete(s.connections, connID)
 		remaining := atomic.LoadInt32(&s.totalConnections)
-		logging.LogInfo("TCP соединение закрыто: %s (осталось: %d)", connID, remaining)
+		logging.Info("TCP соединение закрыто: %s (осталось: %d)", connID, remaining)
 		log.Printf("TCP соединение закрыто: %s (осталось: %d)", connID, remaining)
 	}
 }
@@ -262,21 +262,21 @@ func (c *TCPConnectionPB) readLoop() {
 // handleMessage обрабатывает полученное сообщение
 func (c *TCPConnectionPB) handleMessage(data []byte) {
 	// Логируем получение сообщения
-	logging.LogMessage(c.id, "RECEIVED", "TCP", data)
+	logging.LogMessage("RECEIVED", protocol.MessageType_AUTH, data, c.id)
 
 	// Десериализуем сообщение
 	msg, err := c.serializer.DeserializeMessage(data)
 	if err != nil {
-		logging.LogProtocolError(c.id, err, data)
+		logging.LogProtocolError("TCP Deserialization", err, data)
 		log.Printf("Ошибка десериализации сообщения: %v", err)
 		return
 	}
 
-	logging.LogDebug("TCP: Обработка сообщения %v от %s", msg.Type, c.id)
+	logging.Debug("TCP: Обработка сообщения %v от %s", msg.Type, c.id)
 
 	// Проверяем, инициализирован ли обработчик игры
 	if c.server.gameHandler == nil {
-		logging.LogError("gameHandler не инициализирован для %s", c.id)
+		logging.Error("gameHandler не инициализирован для %s", c.id)
 		log.Printf("Ошибка: gameHandler не инициализирован")
 		return
 	}
@@ -284,7 +284,7 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 	// Проверяем, что соединение авторизовано и токен валиден
 	if msg.Type != protocol.MessageType_AUTH {
 		if !c.server.gameHandler.IsSessionValid(c.id) {
-			logging.LogWarn("Недействительная сессия для %s, тип сообщения: %v", c.id, msg.Type)
+			logging.Debug("Недействительная сессия для %s, тип сообщения: %v", c.id, msg.Type)
 			log.Printf("Недействительная или отсутствующая сессия для %s", c.id)
 			errorResponse := &protocol.AuthResponse{Success: false, Message: "invalid session"}
 			c.sendMessage(protocol.MessageType_AUTH_RESPONSE, errorResponse)
@@ -295,9 +295,9 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 	// Логируем специальные типы сообщений
 	switch msg.Type {
 	case protocol.MessageType_AUTH:
-		logging.LogInfo("TCP: Запрос аутентификации от %s", c.id)
+		logging.Info("TCP: Запрос аутентификации от %s", c.id)
 	case protocol.MessageType_CHUNK_REQUEST:
-		logging.LogDebug("TCP: Запрос чанка от %s", c.id)
+		logging.Debug("TCP: Запрос чанка от %s", c.id)
 	}
 
 	// Передаем сообщение в игровой обработчик
@@ -310,7 +310,7 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 		for id, conn := range c.server.connections {
 			if id == c.id && conn.playerID != 0 {
 				c.playerID = conn.playerID
-				logging.LogInfo("TCP: Установлен playerID %d для соединения %s", conn.playerID, c.id)
+				logging.Info("TCP: Установлен playerID %d для соединения %s", conn.playerID, c.id)
 				break
 			}
 		}
@@ -323,13 +323,13 @@ func (c *TCPConnectionPB) sendMessage(msgType protocol.MessageType, payload prot
 	// Сериализуем сообщение
 	data, err := c.serializer.SerializeMessage(msgType, payload)
 	if err != nil {
-		logging.LogError("❌ TCP: Ошибка сериализации сообщения %v для %s: %v", msgType, c.id, err)
+		logging.Error("❌ TCP: Ошибка сериализации сообщения %v для %s: %v", msgType, c.id, err)
 		log.Printf("❌ TCP: Ошибка сериализации сообщения: %v", err)
 		return
 	}
 
 	// Логируем отправку сообщения
-	logging.LogMessage(c.id, "SENDING", msgType, data)
+	logging.LogMessage("SENDING", msgType, data, c.id)
 
 	// Отправляем размер сообщения (4 байта)
 	header := make([]byte, 4)
@@ -340,12 +340,12 @@ func (c *TCPConnectionPB) sendMessage(msgType protocol.MessageType, payload prot
 	_, err2 := c.conn.Write(data)
 
 	if err1 != nil || err2 != nil {
-		logging.LogError("❌ TCP: Ошибка отправки сообщения %v клиенту %s: %v, %v", msgType, c.id, err1, err2)
+		logging.Error("❌ TCP: Ошибка отправки сообщения %v клиенту %s: %v, %v", msgType, c.id, err1, err2)
 		log.Printf("❌ TCP: Ошибка отправки сообщения клиенту %s: %v, %v", c.id, err1, err2)
 		return
 	}
 
-	logging.LogDebug("✅ TCP: Сообщение %v отправлено клиенту %s", msgType, c.id)
+	logging.Debug("✅ TCP: Сообщение %v отправлено клиенту %s", msgType, c.id)
 }
 
 // close закрывает соединение
