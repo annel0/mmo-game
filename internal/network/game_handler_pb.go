@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/annel0/mmo-game/internal/auth"
+	"github.com/annel0/mmo-game/internal/logging"
 	"github.com/annel0/mmo-game/internal/protocol"
 	"github.com/annel0/mmo-game/internal/vec"
 	"github.com/annel0/mmo-game/internal/world"
@@ -636,19 +637,25 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMessage) {
 	chunkRequest := &protocol.ChunkRequest{}
 	if err := gh.serializer.DeserializePayload(msg, chunkRequest); err != nil {
+		logging.LogProtocolError(connID, err, msg.Payload)
 		log.Printf("Ошибка десериализации ChunkRequest: %v", err)
 		return
 	}
 
+	logging.LogChunkRequest(connID, int(chunkRequest.ChunkX), int(chunkRequest.ChunkY))
+
 	// Проверяем, что клиент авторизован
 	gh.mu.RLock()
-	_, exists := gh.playerEntities[connID]
+	entityID, exists := gh.playerEntities[connID]
 	gh.mu.RUnlock()
 
 	if !exists {
+		logging.LogWarn("Неавторизованный клиент запрашивает чанк: %s", connID)
 		log.Printf("Неавторизованный клиент запрашивает чанк: %s", connID)
 		return
 	}
+
+	logging.LogDebug("Обработка запроса чанка (%d,%d) от игрока %d", chunkRequest.ChunkX, chunkRequest.ChunkY, entityID)
 
 	// Получаем чанк из мира
 	chunkPos := vec.Vec2{X: int(chunkRequest.ChunkX), Y: int(chunkRequest.ChunkY)}
@@ -662,12 +669,14 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 		Blocks: make([]*protocol.BlockRow, 16), // 16x16 блоков в чанке
 	}
 
+	blockCount := 0
 	// Заполняем данные блоков
 	for y := 0; y < 16; y++ {
 		blockIds := make([]uint32, 16)
 		for x := 0; x < 16; x++ {
 			localPos := vec.Vec2{X: x, Y: y}
 			blockIds[x] = uint32(chunk.GetBlock(localPos))
+			blockCount++
 		}
 		chunkData.Blocks[y] = &protocol.BlockRow{
 			BlockIds: blockIds,
@@ -680,6 +689,7 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 	}
 
 	// Обрабатываем метаданные для каждого блока с метаданными
+	metadataCount := 0
 	for localPos, metadata := range chunk.Metadata {
 		if len(metadata) > 0 {
 			jsonStr, err := protocol.MapToJsonMetadata(metadata)
@@ -688,6 +698,7 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 				blockMetadata.BlockMetadata[key] = &protocol.JsonMetadata{
 					JsonData: jsonStr,
 				}
+				metadataCount++
 			}
 		}
 	}
@@ -702,6 +713,11 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 				JsonData: metadataJson,
 			}
 		}
+	}
+
+	logging.LogChunkData(connID, int(chunkRequest.ChunkX), int(chunkRequest.ChunkY), blockCount)
+	if metadataCount > 0 {
+		logging.LogDebug("Чанк (%d,%d) содержит %d блоков с метаданными", chunkRequest.ChunkX, chunkRequest.ChunkY, metadataCount)
 	}
 
 	// Отправляем чанк
@@ -755,6 +771,7 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMes
 // handleEntityMove обрабатывает движение сущности
 func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessage) {
 	// Упрощенная обработка для примера
+	logging.LogDebug("Получено сообщение о движении от %s", connID)
 	log.Printf("Получено сообщение о движении от %s", connID)
 
 	// Проверяем, что клиент авторизован
@@ -763,6 +780,7 @@ func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessa
 	gh.mu.RUnlock()
 
 	if !exists {
+		logging.LogWarn("Неавторизованный клиент перемещает сущность: %s", connID)
 		log.Printf("Неавторизованный клиент перемещает сущность: %s", connID)
 		return
 	}
@@ -770,11 +788,18 @@ func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessa
 	// Получаем сущность из менеджера
 	ent, exists := gh.entityManager.GetEntity(entityID)
 	if !exists {
+		logging.LogError("Сущность %d не найдена для соединения %s", entityID, connID)
 		log.Printf("Сущность %d не найдена", entityID)
 		return
 	}
 
+	// Логируем движение с подробностями
+	logging.LogEntityMovement(ent.ID, float64(ent.Position.X), float64(ent.Position.Y),
+		float64(ent.Position.X), float64(ent.Position.Y), 0)
+
 	// Просто логируем информацию о сущности
+	logging.LogDebug("Перемещение сущности %d типа %d в позиции (%d, %d)",
+		ent.ID, ent.Type, ent.Position.X, ent.Position.Y)
 	log.Printf("Перемещение сущности %d типа %d в позиции (%d, %d)",
 		ent.ID, ent.Type, ent.Position.X, ent.Position.Y)
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/annel0/mmo-game/internal/logging"
 	"github.com/annel0/mmo-game/internal/protocol"
 	"github.com/annel0/mmo-game/internal/world"
 )
@@ -79,14 +80,18 @@ func (s *UDPServerPB) readLoop() {
 		default:
 			n, addr, err := s.conn.ReadFromUDP(buffer)
 			if err != nil {
+				logging.LogError("Ошибка чтения UDP: %v", err)
 				log.Printf("Ошибка чтения UDP: %v", err)
 				continue
 			}
 
 			if n < 4 {
+				logging.LogWarn("Слишком короткий UDP-пакет от %s: %d байт", addr.String(), n)
 				log.Printf("Слишком короткий UDP-пакет: %d байт", n)
 				continue
 			}
+
+			logging.LogDebug("UDP: Получен пакет от %s размером %d байт", addr.String(), n)
 
 			// Первые 4 байта содержат playerID
 			playerID := binary.BigEndian.Uint64(buffer[:8])
@@ -102,6 +107,7 @@ func (s *UDPServerPB) readLoop() {
 					lastSeen: time.Now(),
 				}
 				s.clients[client.id] = client
+				logging.LogInfo("UDP: Новый клиент %d (playerID: %d) подключен с %s", client.id, playerID, addr.String())
 			} else {
 				client.lastSeen = time.Now()
 				client.addr = addr // Обновляем адрес на случай, если он изменился
@@ -138,6 +144,7 @@ func (s *UDPServerPB) cleanupLoop() {
 			for id, client := range s.clients {
 				if time.Since(client.lastSeen) > 2*time.Minute {
 					delete(s.clients, id)
+					logging.LogInfo("UDP клиент %d (playerID: %d) удален из-за таймаута", id, client.playerID)
 					log.Printf("UDP клиент %d удален из-за таймаута", id)
 				}
 			}
@@ -148,26 +155,34 @@ func (s *UDPServerPB) cleanupLoop() {
 
 // handlePacket обрабатывает входящий UDP-пакет
 func (s *UDPServerPB) handlePacket(client *UDPClientPB, data []byte) {
+	// Логируем получение пакета
+	logging.LogMessage(client.addr.String(), "RECEIVED", "UDP", data)
+
 	// Десериализуем сообщение
 	msg, err := s.serializer.DeserializeMessage(data)
 	if err != nil {
+		logging.LogProtocolError(client.addr.String(), err, data)
 		log.Printf("Ошибка десериализации UDP-сообщения: %v", err)
 		return
 	}
 
-	log.Printf("Получен UDP-пакет от игрока %d типа %d (%d байт)",
-		client.playerID, msg.Type, len(data))
+	logging.LogDebug("UDP: Получен пакет от игрока %d типа %v (%d байт)", client.playerID, msg.Type, len(data))
+	log.Printf("Получен UDP-пакет от игрока %d типа %d (%d байт)", client.playerID, msg.Type, len(data))
 
 	// Обрабатываем в зависимости от типа сообщения
 	switch msg.Type {
 	case protocol.MessageType_PING:
+		logging.LogTrace("UDP: Обработка PING от игрока %d", client.playerID)
 		s.handlePing(client, msg)
 	case protocol.MessageType_ENTITY_MOVE:
+		logging.LogTrace("UDP: Обработка ENTITY_MOVE от игрока %d", client.playerID)
 		s.handleEntityMove(client, msg)
 	case protocol.MessageType_CHUNK_REQUEST:
+		logging.LogDebug("UDP: Обработка CHUNK_REQUEST от игрока %d", client.playerID)
 		s.handleChunkRequest(client, msg)
 	default:
 		// Для остальных типов сообщений логируем без обработки
+		logging.LogWarn("UDP: Неподдерживаемый тип сообщения %v от игрока %d", msg.Type, client.playerID)
 		log.Printf("Неподдерживаемый тип UDP-сообщения: %d", msg.Type)
 	}
 }
@@ -217,13 +232,16 @@ func (s *UDPServerPB) handleEntityMove(client *UDPClientPB, msg *protocol.GameMe
 		// Находим ID соединения по playerID
 		connID := s.findConnectionIDByPlayerID(client.playerID)
 		if connID == "" {
+			logging.LogError("UDP: Не найдено TCP-соединение для игрока %d", client.playerID)
 			log.Printf("Не найдено TCP-соединение для игрока %d", client.playerID)
 			return
 		}
 
+		logging.LogDebug("UDP: Перенаправление ENTITY_MOVE от игрока %d в GameHandler", client.playerID)
 		// Передаем сообщение в обработчик игры
 		s.gameHandler.HandleMessage(connID, msg)
 	} else {
+		logging.LogError("UDP: GameHandler не инициализирован, пропуск обработки движения для игрока %d", client.playerID)
 		log.Printf("GameHandler не инициализирован, пропуск обработки движения")
 	}
 }
