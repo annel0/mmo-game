@@ -422,7 +422,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 
 	// === НОВАЯ ЛОГИКА С GAME AUTHENTICATOR ===
 	// Выполняем аутентификацию через GameAuthenticator
-	authResp, err := gh.gameAuth.Authenticate(authMsg)
+	password := ""
+	if authMsg.Password != nil {
+		password = *authMsg.Password
+	}
+
+	authResult, err := gh.gameAuth.AuthenticateUser(authMsg.Username, password)
 	if err != nil {
 		log.Printf("❌ Ошибка при аутентификации: %v", err)
 		resp := &protocol.AuthResponse{Success: false, Message: "Authentication service error"}
@@ -431,8 +436,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 	}
 
 	// Если аутентификация не удалась
-	if !authResp.Success {
-		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResp.Message)
+	if !authResult.Success {
+		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResult.Message)
+		authResp := &protocol.AuthResponse{
+			Success: false,
+			Message: authResult.Message,
+		}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 		return
 	}
@@ -442,11 +451,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 
 	// Определяем роль пользователя
 	isAdmin := false
-	if len(authResp.ServerCapabilities) > 0 {
-		for _, cap := range authResp.ServerCapabilities {
-			if cap == "admin" {
+	serverCapabilities := make([]string, 0)
+	if len(authResult.Roles) > 0 {
+		for _, role := range authResult.Roles {
+			serverCapabilities = append(serverCapabilities, role)
+			if role == "admin" {
 				isAdmin = true
-				break
 			}
 		}
 	}
@@ -461,34 +471,24 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		gh.playerEntities[connID] = entityID
 		gh.playerAuth[entityID] = username
 
-		// Сохраняем сессию с JWT токеном
-		token := ""
-		if authResp.JwtToken != nil {
-			token = *authResp.JwtToken
-		} else {
-			// Если GameAuthenticator не предоставил JWT токен, создаем его принудительно
-			user := &auth.User{
-				ID:       entityID,
-				Username: username,
-				IsAdmin:  isAdmin,
-			}
-			jwtToken, err := auth.GenerateJWT(user)
-			if err != nil {
-				log.Printf("❌ Ошибка создания JWT токена: %v", err)
-				resp := &protocol.AuthResponse{Success: false, Message: "Token generation error"}
-				gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
-				gh.mu.Unlock()
-				return
-			}
-			token = jwtToken
-			// Добавляем JWT в ответ для клиента
-			authResp.JwtToken = &token
+		// Создаем AuthResponse с JWT токеном
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            authResult.Message,
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+			ServerInfo: &protocol.ServerInfo{
+				Version:     "1.0.0",
+				Environment: "development",
+			},
 		}
 
 		gh.sessions[connID] = &Session{
 			PlayerID: entityID,
 			Username: username,
-			Token:    token,
+			Token:    authResult.Token,
 			IsAdmin:  isAdmin,
 		}
 
@@ -507,16 +507,26 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 			gh.tcpServer.mu.Unlock()
 		}
 
+		// Отправляем успешный ответ
+		log.Printf("✅ Аутентификация успешна для %s (ID: %d)", username, entityID)
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
+
 	} else {
 		entityID = existingEntityID
 		log.Printf("⚠️ Игровая сущность уже существует для %s", connID)
+
+		// Отправляем ответ для существующей сессии
+		authResp := &protocol.AuthResponse{
+			Success:            true,
+			Message:            "Already authenticated",
+			PlayerId:           entityID,
+			JwtToken:           &authResult.Token,
+			ServerCapabilities: serverCapabilities,
+			WorldName:          "main_world",
+		}
+		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 	}
 	gh.mu.Unlock()
-
-	// Отправляем успешный ответ, но с правильным ID сущности
-	authResp.PlayerId = entityID // Используем ID сущности, а не playerID от GameAuthenticator
-	log.Printf("✅ Аутентификация успешна для %s (ID: %d)", username, entityID)
-	gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 
 	// Отправляем данные мира
 	if entityID, exists := gh.playerEntities[connID]; exists {
