@@ -9,6 +9,12 @@ message AuthRequest {
   string username = 1;
   optional string password = 2;
   optional string token = 3;
+  
+  // === НОВЫЕ ПОЛЯ ===
+  optional string jwt_token = 4;        // JWT токен для повторной аутентификации
+  bool request_jwt = 5;                 // Запрос на получение JWT токена
+  string client_version = 6;            // Версия клиента
+  repeated string capabilities = 7;      // Возможности клиента ["jwt", "rest", "webhooks"]
 }
 
 // Ответ на аутентификацию
@@ -16,6 +22,21 @@ message AuthResponse {
   bool success = 1;
   string message = 2;
   uint64 player_id = 3;
-  string token = 4;
+  string token = 4;                     // Старый токен (для совместимости)
   string world_name = 5;
+  
+  // === НОВЫЕ ПОЛЯ ===
+  optional string jwt_token = 6;        // JWT токен
+  int64 jwt_expires_at = 7;            // Время истечения JWT (Unix timestamp)
+  repeated string server_capabilities = 8; // Возможности сервера
+  ServerInfo server_info = 9;          // Информация о сервере
+}
+
+// Информация о сервере
+message ServerInfo {
+  string version = 1;
+  string environment = 2;              // "dev", "staging", "production"
+  bool rest_api_available = 3;
+  string rest_api_endpoint = 4;        // "http://localhost:8088"
+  repeated string features = 5;         // ["webhooks", "analytics", "admin_panel"]
 } 

@@ -11,4 +11,16 @@ type User struct {
 	CreatedAt    time.Time // Account creation timestamp (server time)
 	LastLogin    time.Time // Last successful login
 	IsAdmin      bool      // Administrative privileges flag
+	Role         string    // User role (user, admin, moderator) - для JWT
+}
+
+// GetRole возвращает роль пользователя
+func (u *User) GetRole() string {
+	if u.Role != "" {
+		return u.Role
+	}
+	if u.IsAdmin {
+		return "admin"
+	}
+	return "user"
 }

@@ -42,3 +42,6 @@
 # Misc
 workspace
 data
+data/world/*
+data/world/
+client

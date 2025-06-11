@@ -35,9 +35,9 @@ func NewMemoryUserRepo() (*MemoryUserRepo, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	log.Printf("SECURITY WARNING: Default admin user created with password 'ChangeMe123!' - CHANGE IMMEDIATELY!")
-	
+
 	return repo, nil
 }
 
@@ -69,9 +69,48 @@ func (r *MemoryUserRepo) CreateUser(username string, passwordHash string, isAdmi
 		CreatedAt:    time.Now(),
 		LastLogin:    time.Now(),
 		IsAdmin:      isAdmin,
+		Role:         "", // Будет установлено через GetRole()
 	}
 	r.nextID++
 	r.users[key] = user
+	return user, nil
+}
+
+// === НОВЫЕ МЕТОДЫ ДЛЯ JWT ===
+
+// GetUserByID retrieves user by ID
+func (r *MemoryUserRepo) GetUserByID(id uint64) (*User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Ищем пользователя по ID (менее эффективно, но для in-memory репозитория приемлемо)
+	for _, user := range r.users {
+		if user.ID == id {
+			return user, nil
+		}
+	}
+
+	return nil, ErrUserNotFound
+}
+
+// ValidateCredentials проверяет учетные данные пользователя
+func (r *MemoryUserRepo) ValidateCredentials(username, password string) (*User, error) {
+	// Получаем пользователя
+	user, err := r.GetUserByUsername(username)
+	if err != nil {
+		return nil, err
+	}
+
+	// Проверяем пароль
+	if !CheckPassword(user.PasswordHash, password) {
+		return nil, ErrUserNotFound // Возвращаем тот же тип ошибки для безопасности
+	}
+
+	// Обновляем время последнего входа
+	r.mu.Lock()
+	user.LastLogin = time.Now()
+	r.mu.Unlock()
+
 	return user, nil
 }
 
