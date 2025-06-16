@@ -43,6 +43,11 @@ func (b *AirBehavior) CreateMetadata() block.Metadata {
 	return block.Metadata{}
 }
 
+// IsPassable возвращает true, т.к. воздух полностью проходим.
+func (b *AirBehavior) IsPassable() bool {
+	return true
+}
+
 // HandleInteraction обрабатывает взаимодействие с блоком воздуха
 func (b *AirBehavior) HandleInteraction(action string, currentPayload, actionPayload map[string]interface{}) (block.BlockID, map[string]interface{}, block.InteractionResult) {
 	// Воздух нельзя изменить взаимодействием, но можно поставить блок

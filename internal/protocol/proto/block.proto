@@ -4,7 +4,7 @@ package protocol;
 
 option go_package = "github.com/annel0/mmo-game/internal/protocol";
 
-import "internal/protocol/proto/common.proto";
+import "common.proto";
 
 // Запрос на обновление блока
 message BlockUpdateRequest {
@@ -37,4 +37,6 @@ message BlockData {
 // Сообщение с обновлениями блоков
 message BlockUpdateMessage {
   repeated BlockData blocks = 1;
-} 
+}
+
+// (BlockChange описан в chunk.proto) 

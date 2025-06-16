@@ -47,3 +47,7 @@ data/world/
 client
 clientserver
 server
+main
+protocol_analyzer
+protocol_analyzer.go
+test_client.go

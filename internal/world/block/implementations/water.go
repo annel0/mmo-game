@@ -82,7 +82,9 @@ func (b *WaterBehavior) OnPlace(api block.BlockAPI, pos vec.Vec2) {
 
 // OnBreak вызывается при разрушении блока
 func (b *WaterBehavior) OnBreak(api block.BlockAPI, pos vec.Vec2) {
-	// Просто удаляем блок, без дополнительных действий
+	// При удалении воды запускаем обновление соседних блоков
+	// Это важно для глубинной воды, которая может превратиться в обычную воду
+	api.TriggerNeighborUpdates(pos)
 }
 
 // CreateMetadata создает начальные метаданные для блока
@@ -140,6 +142,11 @@ func (b *WaterBehavior) HandleInteraction(action string, currentPayload, actionP
 		Success: false,
 		Message: "Действие не поддерживается для воды",
 	}
+}
+
+// IsPassable возвращает true — игрок может перемещаться в воде (с возможным снижением скорости).
+func (b *WaterBehavior) IsPassable() bool {
+	return true
 }
 
 func init() {

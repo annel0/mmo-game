@@ -14,4 +14,8 @@ type BlockAPI interface {
 	// Layer-aware helpers (новые)
 	GetBlockIDLayer(layer uint8, pos vec.Vec2) BlockID
 	SetBlockLayer(layer uint8, pos vec.Vec2, id BlockID)
+
+	// Методы для системы updateOnce
+	ScheduleUpdateOnce(pos vec.Vec2)     // Пометить блок для разового обновления в следующем тике
+	TriggerNeighborUpdates(pos vec.Vec2) // Запустить разовое обновление для всех соседних блоков
 }

@@ -100,15 +100,18 @@ func (ws *WorldStorage) SaveChunk(chunk *world.Chunk) error {
 		BlockDeltas: make(map[string]BlockDelta),
 	}
 
-	// Добавляем изменения блоков
-	for pos := range chunk.Changes {
-		blockID := chunk.Blocks[pos.X][pos.Y]
-		metadata := chunk.Metadata[pos]
+	// Добавляем изменения блоков из Changes3D
+	for coord := range chunk.Changes3D {
+		// Обрабатываем только изменения в слое ACTIVE
+		if coord.Layer == world.LayerActive {
+			blockID := chunk.GetBlockLayer(coord.Layer, coord.Pos)
+			metadata := chunk.GetBlockMetadataLayer(coord.Layer, coord.Pos)
 
-		key := fmt.Sprintf("%d:%d", pos.X, pos.Y)
-		delta.BlockDeltas[key] = BlockDelta{
-			ID:      blockID,
-			Payload: metadata,
+			key := fmt.Sprintf("%d:%d", coord.Pos.X, coord.Pos.Y)
+			delta.BlockDeltas[key] = BlockDelta{
+				ID:      blockID,
+				Payload: metadata,
+			}
 		}
 	}
 	chunk.Mu.RUnlock()
@@ -131,12 +134,8 @@ func (ws *WorldStorage) SaveChunk(chunk *world.Chunk) error {
 		return fmt.Errorf("ошибка сохранения в BadgerDB: %w", err)
 	}
 
-	// Очищаем список изменений в чанке напрямую,
-	// вместо вызова chunk.ClearChanges() который содержит свою блокировку
-	chunk.Mu.Lock()
-	chunk.Changes = make(map[vec.Vec2]struct{})
-	chunk.ChangeCounter = 0
-	chunk.Mu.Unlock()
+	// Очищаем список изменений в чанке
+	chunk.ClearChanges()
 
 	return nil
 }
@@ -211,12 +210,12 @@ func (ws *WorldStorage) ApplyDeltaToChunk(chunk *world.Chunk, delta *ChunkDelta)
 		}
 
 		// Устанавливаем блок
-		chunk.Blocks[x][y] = blockDelta.ID
+		pos := vec.Vec2{X: x, Y: y}
+		chunk.SetBlock(pos, blockDelta.ID)
 
 		// Устанавливаем метаданные, если они есть
 		if len(blockDelta.Payload) > 0 {
-			pos := vec.Vec2{X: x, Y: y}
-			chunk.Metadata[pos] = blockDelta.Payload
+			chunk.SetBlockMetadataMap(pos, blockDelta.Payload)
 		}
 	}
 

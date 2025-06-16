@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"log"
 	"sync"
 	"time"
@@ -42,10 +43,15 @@ func NewGameServerPB(tcpAddr, udpAddr string) (*GameServerPB, error) {
 		return nil, err
 	}
 
-	// === СОЗДАЕМ GAME AUTHENTICATOR ===
-	// Генерируем JWT секрет
+	// Генерируем 32-байтовый секрет и регистрируем его глобально в пакете auth
 	jwtSecret := make([]byte, 32)
 	if _, err := rand.Read(jwtSecret); err != nil {
+		cancel()
+		return nil, err
+	}
+
+	// Устанавливаем секрет (base64) в пакет auth, чтобы ValidateJWT использовал тот же ключ
+	if err := auth.SetJWTSecret(base64.StdEncoding.EncodeToString(jwtSecret)); err != nil {
 		cancel()
 		return nil, err
 	}

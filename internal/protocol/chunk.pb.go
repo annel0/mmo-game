@@ -74,12 +74,110 @@ func (x *ChunkRequest) GetChunkY() int32 {
 	return 0
 }
 
-// Данные чанка
+// Запрос списка чанков
+type ChunkBatchRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Chunks        []*Vec2                `protobuf:"bytes,1,rep,name=chunks,proto3" json:"chunks,omitempty"` // Координаты чанков
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChunkBatchRequest) Reset() {
+	*x = ChunkBatchRequest{}
+	mi := &file_chunk_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChunkBatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChunkBatchRequest) ProtoMessage() {}
+
+func (x *ChunkBatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChunkBatchRequest.ProtoReflect.Descriptor instead.
+func (*ChunkBatchRequest) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ChunkBatchRequest) GetChunks() []*Vec2 {
+	if x != nil {
+		return x.Chunks
+	}
+	return nil
+}
+
+// Данные одного слоя чанка
+type ChunkLayer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Layer         uint32                 `protobuf:"varint,1,opt,name=layer,proto3" json:"layer,omitempty"` // Номер слоя: 0=floor,1=active,2=ceiling
+	Rows          []*BlockRow            `protobuf:"bytes,2,rep,name=rows,proto3" json:"rows,omitempty"`    // Срочки блоков этого слоя
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChunkLayer) Reset() {
+	*x = ChunkLayer{}
+	mi := &file_chunk_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChunkLayer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChunkLayer) ProtoMessage() {}
+
+func (x *ChunkLayer) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChunkLayer.ProtoReflect.Descriptor instead.
+func (*ChunkLayer) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ChunkLayer) GetLayer() uint32 {
+	if x != nil {
+		return x.Layer
+	}
+	return 0
+}
+
+func (x *ChunkLayer) GetRows() []*BlockRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+// Данные чанка (многослойная версия, заменяет старое поле blocks)
 type ChunkData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ChunkX        int32                  `protobuf:"varint,1,opt,name=chunk_x,json=chunkX,proto3" json:"chunk_x,omitempty"`
 	ChunkY        int32                  `protobuf:"varint,2,opt,name=chunk_y,json=chunkY,proto3" json:"chunk_y,omitempty"`
-	Blocks        []*BlockRow            `protobuf:"bytes,3,rep,name=blocks,proto3" json:"blocks,omitempty"`     // Матрица блоков в чанке
+	Layers        []*ChunkLayer          `protobuf:"bytes,3,rep,name=layers,proto3" json:"layers,omitempty"`     // Все слои чанка
 	Entities      []*EntityData          `protobuf:"bytes,4,rep,name=entities,proto3" json:"entities,omitempty"` // Сущности в чанке
 	Metadata      *JsonMetadata          `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"` // JSON-метаданные чанка
 	unknownFields protoimpl.UnknownFields
@@ -88,7 +186,7 @@ type ChunkData struct {
 
 func (x *ChunkData) Reset() {
 	*x = ChunkData{}
-	mi := &file_chunk_proto_msgTypes[1]
+	mi := &file_chunk_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -100,7 +198,7 @@ func (x *ChunkData) String() string {
 func (*ChunkData) ProtoMessage() {}
 
 func (x *ChunkData) ProtoReflect() protoreflect.Message {
-	mi := &file_chunk_proto_msgTypes[1]
+	mi := &file_chunk_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -113,7 +211,7 @@ func (x *ChunkData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChunkData.ProtoReflect.Descriptor instead.
 func (*ChunkData) Descriptor() ([]byte, []int) {
-	return file_chunk_proto_rawDescGZIP(), []int{1}
+	return file_chunk_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ChunkData) GetChunkX() int32 {
@@ -130,9 +228,9 @@ func (x *ChunkData) GetChunkY() int32 {
 	return 0
 }
 
-func (x *ChunkData) GetBlocks() []*BlockRow {
+func (x *ChunkData) GetLayers() []*ChunkLayer {
 	if x != nil {
-		return x.Blocks
+		return x.Layers
 	}
 	return nil
 }
@@ -161,7 +259,7 @@ type BlockRow struct {
 
 func (x *BlockRow) Reset() {
 	*x = BlockRow{}
-	mi := &file_chunk_proto_msgTypes[2]
+	mi := &file_chunk_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -173,7 +271,7 @@ func (x *BlockRow) String() string {
 func (*BlockRow) ProtoMessage() {}
 
 func (x *BlockRow) ProtoReflect() protoreflect.Message {
-	mi := &file_chunk_proto_msgTypes[2]
+	mi := &file_chunk_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -186,7 +284,7 @@ func (x *BlockRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlockRow.ProtoReflect.Descriptor instead.
 func (*BlockRow) Descriptor() ([]byte, []int) {
-	return file_chunk_proto_rawDescGZIP(), []int{2}
+	return file_chunk_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BlockRow) GetBlockIds() []uint32 {
@@ -206,7 +304,7 @@ type ChunkBlockMetadata struct {
 
 func (x *ChunkBlockMetadata) Reset() {
 	*x = ChunkBlockMetadata{}
-	mi := &file_chunk_proto_msgTypes[3]
+	mi := &file_chunk_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -218,7 +316,7 @@ func (x *ChunkBlockMetadata) String() string {
 func (*ChunkBlockMetadata) ProtoMessage() {}
 
 func (x *ChunkBlockMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_chunk_proto_msgTypes[3]
+	mi := &file_chunk_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -231,7 +329,7 @@ func (x *ChunkBlockMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChunkBlockMetadata.ProtoReflect.Descriptor instead.
 func (*ChunkBlockMetadata) Descriptor() ([]byte, []int) {
-	return file_chunk_proto_rawDescGZIP(), []int{3}
+	return file_chunk_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ChunkBlockMetadata) GetBlockMetadata() map[string]*JsonMetadata {
@@ -241,6 +339,343 @@ func (x *ChunkBlockMetadata) GetBlockMetadata() map[string]*JsonMetadata {
 	return nil
 }
 
+// Дельта изменений блоков в чанке
+type ChunkBlockDelta struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChunkCoords   *Vec2                  `protobuf:"bytes,1,opt,name=chunk_coords,json=chunkCoords,proto3" json:"chunk_coords,omitempty"`     // Координаты чанка
+	BlockChanges  []*BlockChange         `protobuf:"bytes,2,rep,name=block_changes,json=blockChanges,proto3" json:"block_changes,omitempty"`  // Список изменённых блоков
+	DeltaVersion  uint64                 `protobuf:"varint,3,opt,name=delta_version,json=deltaVersion,proto3" json:"delta_version,omitempty"` // Версия изменений для порядка применения
+	Crc32         uint32                 `protobuf:"varint,4,opt,name=crc32,proto3" json:"crc32,omitempty"`                                   // Контрольная сумма для проверки целостности
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChunkBlockDelta) Reset() {
+	*x = ChunkBlockDelta{}
+	mi := &file_chunk_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChunkBlockDelta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChunkBlockDelta) ProtoMessage() {}
+
+func (x *ChunkBlockDelta) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChunkBlockDelta.ProtoReflect.Descriptor instead.
+func (*ChunkBlockDelta) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ChunkBlockDelta) GetChunkCoords() *Vec2 {
+	if x != nil {
+		return x.ChunkCoords
+	}
+	return nil
+}
+
+func (x *ChunkBlockDelta) GetBlockChanges() []*BlockChange {
+	if x != nil {
+		return x.BlockChanges
+	}
+	return nil
+}
+
+func (x *ChunkBlockDelta) GetDeltaVersion() uint64 {
+	if x != nil {
+		return x.DeltaVersion
+	}
+	return 0
+}
+
+func (x *ChunkBlockDelta) GetCrc32() uint32 {
+	if x != nil {
+		return x.Crc32
+	}
+	return 0
+}
+
+// Изменение одного блока
+type BlockChange struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	LocalPos      *Vec2                  `protobuf:"bytes,1,opt,name=local_pos,json=localPos,proto3" json:"local_pos,omitempty"`       // Локальные координаты в чанке (0-15)
+	Layer         uint32                 `protobuf:"varint,2,opt,name=layer,proto3" json:"layer,omitempty"`                            // Слой, на котором происходит изменение
+	BlockId       uint32                 `protobuf:"varint,3,opt,name=block_id,json=blockId,proto3" json:"block_id,omitempty"`         // Новый ID блока
+	Metadata      *JsonMetadata          `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`                       // Метаданные блока
+	ChangeType    string                 `protobuf:"bytes,5,opt,name=change_type,json=changeType,proto3" json:"change_type,omitempty"` // Тип изменения: "set", "break", "place", "update"
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlockChange) Reset() {
+	*x = BlockChange{}
+	mi := &file_chunk_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlockChange) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlockChange) ProtoMessage() {}
+
+func (x *BlockChange) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlockChange.ProtoReflect.Descriptor instead.
+func (*BlockChange) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BlockChange) GetLocalPos() *Vec2 {
+	if x != nil {
+		return x.LocalPos
+	}
+	return nil
+}
+
+func (x *BlockChange) GetLayer() uint32 {
+	if x != nil {
+		return x.Layer
+	}
+	return 0
+}
+
+func (x *BlockChange) GetBlockId() uint32 {
+	if x != nil {
+		return x.BlockId
+	}
+	return 0
+}
+
+func (x *BlockChange) GetMetadata() *JsonMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *BlockChange) GetChangeType() string {
+	if x != nil {
+		return x.ChangeType
+	}
+	return ""
+}
+
+// Событие изменения блока (для broadcast всем игрокам)
+type BlockEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorldPos      *Vec2                  `protobuf:"bytes,1,opt,name=world_pos,json=worldPos,proto3" json:"world_pos,omitempty"`    // Глобальные координаты блока
+	BlockId       uint32                 `protobuf:"varint,2,opt,name=block_id,json=blockId,proto3" json:"block_id,omitempty"`      // ID блока
+	Metadata      *JsonMetadata          `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`                    // Метаданные
+	EventType     string                 `protobuf:"bytes,4,opt,name=event_type,json=eventType,proto3" json:"event_type,omitempty"` // Тип события: "break", "place", "interact"
+	Effects       []string               `protobuf:"bytes,5,rep,name=effects,proto3" json:"effects,omitempty"`                      // Визуальные/звуковые эффекты
+	PlayerId      uint64                 `protobuf:"varint,6,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`   // ID игрока, вызвавшего изменение
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BlockEvent) Reset() {
+	*x = BlockEvent{}
+	mi := &file_chunk_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlockEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlockEvent) ProtoMessage() {}
+
+func (x *BlockEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlockEvent.ProtoReflect.Descriptor instead.
+func (*BlockEvent) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *BlockEvent) GetWorldPos() *Vec2 {
+	if x != nil {
+		return x.WorldPos
+	}
+	return nil
+}
+
+func (x *BlockEvent) GetBlockId() uint32 {
+	if x != nil {
+		return x.BlockId
+	}
+	return 0
+}
+
+func (x *BlockEvent) GetMetadata() *JsonMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *BlockEvent) GetEventType() string {
+	if x != nil {
+		return x.EventType
+	}
+	return ""
+}
+
+func (x *BlockEvent) GetEffects() []string {
+	if x != nil {
+		return x.Effects
+	}
+	return nil
+}
+
+func (x *BlockEvent) GetPlayerId() uint64 {
+	if x != nil {
+		return x.PlayerId
+	}
+	return 0
+}
+
+// Запрос на подписку на обновления блоков в области
+type SubscribeBlockUpdates struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Center        *Vec2                  `protobuf:"bytes,1,opt,name=center,proto3" json:"center,omitempty"`  // Центр области
+	Radius        int32                  `protobuf:"varint,2,opt,name=radius,proto3" json:"radius,omitempty"` // Радиус в чанках
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubscribeBlockUpdates) Reset() {
+	*x = SubscribeBlockUpdates{}
+	mi := &file_chunk_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubscribeBlockUpdates) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubscribeBlockUpdates) ProtoMessage() {}
+
+func (x *SubscribeBlockUpdates) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubscribeBlockUpdates.ProtoReflect.Descriptor instead.
+func (*SubscribeBlockUpdates) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SubscribeBlockUpdates) GetCenter() *Vec2 {
+	if x != nil {
+		return x.Center
+	}
+	return nil
+}
+
+func (x *SubscribeBlockUpdates) GetRadius() int32 {
+	if x != nil {
+		return x.Radius
+	}
+	return 0
+}
+
+// Отписка от обновлений блоков
+type UnsubscribeBlockUpdates struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Center        *Vec2                  `protobuf:"bytes,1,opt,name=center,proto3" json:"center,omitempty"`  // Центр области
+	Radius        int32                  `protobuf:"varint,2,opt,name=radius,proto3" json:"radius,omitempty"` // Радиус в чанках
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnsubscribeBlockUpdates) Reset() {
+	*x = UnsubscribeBlockUpdates{}
+	mi := &file_chunk_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnsubscribeBlockUpdates) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnsubscribeBlockUpdates) ProtoMessage() {}
+
+func (x *UnsubscribeBlockUpdates) ProtoReflect() protoreflect.Message {
+	mi := &file_chunk_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnsubscribeBlockUpdates.ProtoReflect.Descriptor instead.
+func (*UnsubscribeBlockUpdates) Descriptor() ([]byte, []int) {
+	return file_chunk_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UnsubscribeBlockUpdates) GetCenter() *Vec2 {
+	if x != nil {
+		return x.Center
+	}
+	return nil
+}
+
+func (x *UnsubscribeBlockUpdates) GetRadius() int32 {
+	if x != nil {
+		return x.Radius
+	}
+	return 0
+}
+
 var File_chunk_proto protoreflect.FileDescriptor
 
 const file_chunk_proto_rawDesc = "" +
@@ -248,11 +683,17 @@ const file_chunk_proto_rawDesc = "" +
 	"\vchunk.proto\x12\bprotocol\x1a\fcommon.proto\x1a\fentity.proto\"@\n" +
 	"\fChunkRequest\x12\x17\n" +
 	"\achunk_x\x18\x01 \x01(\x05R\x06chunkX\x12\x17\n" +
-	"\achunk_y\x18\x02 \x01(\x05R\x06chunkY\"\xcf\x01\n" +
+	"\achunk_y\x18\x02 \x01(\x05R\x06chunkY\";\n" +
+	"\x11ChunkBatchRequest\x12&\n" +
+	"\x06chunks\x18\x01 \x03(\v2\x0e.protocol.Vec2R\x06chunks\"J\n" +
+	"\n" +
+	"ChunkLayer\x12\x14\n" +
+	"\x05layer\x18\x01 \x01(\rR\x05layer\x12&\n" +
+	"\x04rows\x18\x02 \x03(\v2\x12.protocol.BlockRowR\x04rows\"\xd1\x01\n" +
 	"\tChunkData\x12\x17\n" +
 	"\achunk_x\x18\x01 \x01(\x05R\x06chunkX\x12\x17\n" +
-	"\achunk_y\x18\x02 \x01(\x05R\x06chunkY\x12*\n" +
-	"\x06blocks\x18\x03 \x03(\v2\x12.protocol.BlockRowR\x06blocks\x120\n" +
+	"\achunk_y\x18\x02 \x01(\x05R\x06chunkY\x12,\n" +
+	"\x06layers\x18\x03 \x03(\v2\x14.protocol.ChunkLayerR\x06layers\x120\n" +
 	"\bentities\x18\x04 \x03(\v2\x14.protocol.EntityDataR\bentities\x122\n" +
 	"\bmetadata\x18\x05 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\"'\n" +
 	"\bBlockRow\x12\x1b\n" +
@@ -261,7 +702,34 @@ const file_chunk_proto_rawDesc = "" +
 	"\x0eblock_metadata\x18\x01 \x03(\v2/.protocol.ChunkBlockMetadata.BlockMetadataEntryR\rblockMetadata\x1aX\n" +
 	"\x12BlockMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
-	"\x05value\x18\x02 \x01(\v2\x16.protocol.JsonMetadataR\x05value:\x028\x01B.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x16.protocol.JsonMetadataR\x05value:\x028\x01\"\xbb\x01\n" +
+	"\x0fChunkBlockDelta\x121\n" +
+	"\fchunk_coords\x18\x01 \x01(\v2\x0e.protocol.Vec2R\vchunkCoords\x12:\n" +
+	"\rblock_changes\x18\x02 \x03(\v2\x15.protocol.BlockChangeR\fblockChanges\x12#\n" +
+	"\rdelta_version\x18\x03 \x01(\x04R\fdeltaVersion\x12\x14\n" +
+	"\x05crc32\x18\x04 \x01(\rR\x05crc32\"\xc0\x01\n" +
+	"\vBlockChange\x12+\n" +
+	"\tlocal_pos\x18\x01 \x01(\v2\x0e.protocol.Vec2R\blocalPos\x12\x14\n" +
+	"\x05layer\x18\x02 \x01(\rR\x05layer\x12\x19\n" +
+	"\bblock_id\x18\x03 \x01(\rR\ablockId\x122\n" +
+	"\bmetadata\x18\x04 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x1f\n" +
+	"\vchange_type\x18\x05 \x01(\tR\n" +
+	"changeType\"\xde\x01\n" +
+	"\n" +
+	"BlockEvent\x12+\n" +
+	"\tworld_pos\x18\x01 \x01(\v2\x0e.protocol.Vec2R\bworldPos\x12\x19\n" +
+	"\bblock_id\x18\x02 \x01(\rR\ablockId\x122\n" +
+	"\bmetadata\x18\x03 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x1d\n" +
+	"\n" +
+	"event_type\x18\x04 \x01(\tR\teventType\x12\x18\n" +
+	"\aeffects\x18\x05 \x03(\tR\aeffects\x12\x1b\n" +
+	"\tplayer_id\x18\x06 \x01(\x04R\bplayerId\"W\n" +
+	"\x15SubscribeBlockUpdates\x12&\n" +
+	"\x06center\x18\x01 \x01(\v2\x0e.protocol.Vec2R\x06center\x12\x16\n" +
+	"\x06radius\x18\x02 \x01(\x05R\x06radius\"Y\n" +
+	"\x17UnsubscribeBlockUpdates\x12&\n" +
+	"\x06center\x18\x01 \x01(\v2\x0e.protocol.Vec2R\x06center\x12\x16\n" +
+	"\x06radius\x18\x02 \x01(\x05R\x06radiusB.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
 
 var (
 	file_chunk_proto_rawDescOnce sync.Once
@@ -275,27 +743,45 @@ func file_chunk_proto_rawDescGZIP() []byte {
 	return file_chunk_proto_rawDescData
 }
 
-var file_chunk_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_chunk_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_chunk_proto_goTypes = []any{
-	(*ChunkRequest)(nil),       // 0: protocol.ChunkRequest
-	(*ChunkData)(nil),          // 1: protocol.ChunkData
-	(*BlockRow)(nil),           // 2: protocol.BlockRow
-	(*ChunkBlockMetadata)(nil), // 3: protocol.ChunkBlockMetadata
-	nil,                        // 4: protocol.ChunkBlockMetadata.BlockMetadataEntry
-	(*EntityData)(nil),         // 5: protocol.EntityData
-	(*JsonMetadata)(nil),       // 6: protocol.JsonMetadata
+	(*ChunkRequest)(nil),            // 0: protocol.ChunkRequest
+	(*ChunkBatchRequest)(nil),       // 1: protocol.ChunkBatchRequest
+	(*ChunkLayer)(nil),              // 2: protocol.ChunkLayer
+	(*ChunkData)(nil),               // 3: protocol.ChunkData
+	(*BlockRow)(nil),                // 4: protocol.BlockRow
+	(*ChunkBlockMetadata)(nil),      // 5: protocol.ChunkBlockMetadata
+	(*ChunkBlockDelta)(nil),         // 6: protocol.ChunkBlockDelta
+	(*BlockChange)(nil),             // 7: protocol.BlockChange
+	(*BlockEvent)(nil),              // 8: protocol.BlockEvent
+	(*SubscribeBlockUpdates)(nil),   // 9: protocol.SubscribeBlockUpdates
+	(*UnsubscribeBlockUpdates)(nil), // 10: protocol.UnsubscribeBlockUpdates
+	nil,                             // 11: protocol.ChunkBlockMetadata.BlockMetadataEntry
+	(*Vec2)(nil),                    // 12: protocol.Vec2
+	(*EntityData)(nil),              // 13: protocol.EntityData
+	(*JsonMetadata)(nil),            // 14: protocol.JsonMetadata
 }
 var file_chunk_proto_depIdxs = []int32{
-	2, // 0: protocol.ChunkData.blocks:type_name -> protocol.BlockRow
-	5, // 1: protocol.ChunkData.entities:type_name -> protocol.EntityData
-	6, // 2: protocol.ChunkData.metadata:type_name -> protocol.JsonMetadata
-	4, // 3: protocol.ChunkBlockMetadata.block_metadata:type_name -> protocol.ChunkBlockMetadata.BlockMetadataEntry
-	6, // 4: protocol.ChunkBlockMetadata.BlockMetadataEntry.value:type_name -> protocol.JsonMetadata
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	12, // 0: protocol.ChunkBatchRequest.chunks:type_name -> protocol.Vec2
+	4,  // 1: protocol.ChunkLayer.rows:type_name -> protocol.BlockRow
+	2,  // 2: protocol.ChunkData.layers:type_name -> protocol.ChunkLayer
+	13, // 3: protocol.ChunkData.entities:type_name -> protocol.EntityData
+	14, // 4: protocol.ChunkData.metadata:type_name -> protocol.JsonMetadata
+	11, // 5: protocol.ChunkBlockMetadata.block_metadata:type_name -> protocol.ChunkBlockMetadata.BlockMetadataEntry
+	12, // 6: protocol.ChunkBlockDelta.chunk_coords:type_name -> protocol.Vec2
+	7,  // 7: protocol.ChunkBlockDelta.block_changes:type_name -> protocol.BlockChange
+	12, // 8: protocol.BlockChange.local_pos:type_name -> protocol.Vec2
+	14, // 9: protocol.BlockChange.metadata:type_name -> protocol.JsonMetadata
+	12, // 10: protocol.BlockEvent.world_pos:type_name -> protocol.Vec2
+	14, // 11: protocol.BlockEvent.metadata:type_name -> protocol.JsonMetadata
+	12, // 12: protocol.SubscribeBlockUpdates.center:type_name -> protocol.Vec2
+	12, // 13: protocol.UnsubscribeBlockUpdates.center:type_name -> protocol.Vec2
+	14, // 14: protocol.ChunkBlockMetadata.BlockMetadataEntry.value:type_name -> protocol.JsonMetadata
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_chunk_proto_init() }
@@ -311,7 +797,7 @@ func file_chunk_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chunk_proto_rawDesc), len(file_chunk_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

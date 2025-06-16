@@ -26,6 +26,13 @@ enum MessageType {
   PLAYER_INVENTORY = 17;
   GAME_EVENT = 18;
   SERVER_MESSAGE = 19;
+  CHUNK_BATCH_REQUEST = 20; // Запрос сразу нескольких чанков
+  
+  // Новые типы для delta-обновлений блоков
+  CHUNK_BLOCK_DELTA = 21;       // Дельта изменений блоков в чанке
+  BLOCK_EVENT = 22;             // Событие изменения блока
+  SUBSCRIBE_BLOCK_UPDATES = 23; // Подписка на обновления блоков
+  UNSUBSCRIBE_BLOCK_UPDATES = 24; // Отписка от обновлений блоков
 }
 
 // Логические этажи блока

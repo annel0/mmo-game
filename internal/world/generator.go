@@ -13,8 +13,19 @@ type BiomeType int
 
 const (
 	BiomePlains BiomeType = iota
+	BiomeDesert
+	BiomeForest
 	BiomeMountains
 	BiomeWater
+	BiomeDeepWater
+)
+
+// Константы высот для генерации
+const (
+	DeepWaterMax    = 0.20 // Ниже - глубинная вода
+	ShallowWaterMax = 0.30 // Ниже - мелководье
+	ActiveStart     = 0.60 // Выше - активные блоки (трава, деревья)
+	MountainStart   = 0.80 // Выше - горы с рудами
 )
 
 // WorldGenerator генерирует ландшафт мира
@@ -72,14 +83,8 @@ func (wg *WorldGenerator) GenerateChunk(coords vec.Vec2) *Chunk {
 			// Определяем биом на основе высоты и значения биома
 			biome := wg.getBiomeType(height, biomeValue)
 
-			// Определяем тип блока на основе биома
-			activeID := wg.getBlockForBiome(biome, height, rng)
-
-			// Простейшая логика пола
-			floorID := block.DirtBlockID
-			if biome == BiomeMountains {
-				floorID = block.StoneBlockID
-			}
+			// Генерируем блоки для слоев
+			floorID, activeID := wg.getBlocksForHeight(height, biome, rng)
 
 			localPos := vec.Vec2{X: x, Y: y}
 
@@ -87,16 +92,24 @@ func (wg *WorldGenerator) GenerateChunk(coords vec.Vec2) *Chunk {
 			chunk.SetBlockLayer(LayerFloor, localPos, floorID)
 			// Слой Active – ландшафт/вода/т.п.
 			chunk.SetBlockLayer(LayerActive, localPos, activeID)
-			// Также дублируем для старого поля, чтобы древний код не ломался
-			chunk.SetBlock(localPos, activeID)
 
-			// Если это равнины и подходящее место, добавляем дерево с некоторой вероятностью
-			if biome == BiomePlains && rng.Float64() < wg.ForestDensity {
-				wg.placeTreeMetadata(chunk, localPos, rng)
+			// Добавляем деревья и другие объекты
+			if activeID == block.AirBlockID && floorID != block.WaterBlockID && floorID != block.DeepWaterBlockID {
+				// На суше можем разместить объекты
+				if biome == BiomeForest && rng.Float64() < 0.15 { // 15% шанс дерева в лесу
+					chunk.SetBlockLayer(LayerActive, localPos, block.TreeBlockID)
+					wg.placeTreeMetadata(chunk, localPos, rng)
+				} else if biome == BiomePlains && rng.Float64() < wg.ForestDensity {
+					chunk.SetBlockLayer(LayerActive, localPos, block.TreeBlockID)
+					wg.placeTreeMetadata(chunk, localPos, rng)
+				} else if biome == BiomeDesert && rng.Float64() < 0.02 { // 2% шанс кактуса в пустыне
+					chunk.SetBlockLayer(LayerActive, localPos, block.CactusBlockID)
+				}
 			}
 
 			// Инициализируем метаданные для блока active-слоя, если нужно
-			behavior, exists := block.Get(activeID)
+			activeBlockID := chunk.GetBlockLayer(LayerActive, localPos)
+			behavior, exists := block.Get(activeBlockID)
 			if exists && behavior.NeedsTick() {
 				chunk.Tickable3D[BlockCoord{Layer: LayerActive, Pos: localPos}] = struct{}{}
 
@@ -113,23 +126,81 @@ func (wg *WorldGenerator) GenerateChunk(coords vec.Vec2) *Chunk {
 	return chunk
 }
 
+// getBlocksForHeight возвращает блоки для слоев пола и активного в зависимости от высоты
+func (wg *WorldGenerator) getBlocksForHeight(height float64, biome BiomeType, rng *rand.Rand) (floorID, activeID block.BlockID) {
+	switch {
+	case height < DeepWaterMax:
+		// Глубинная вода
+		floorID = block.DeepWaterBlockID
+		activeID = block.AirBlockID
+
+	case height < ShallowWaterMax:
+		// Мелководье
+		floorID = block.WaterBlockID
+		activeID = block.AirBlockID
+
+	case height < ActiveStart:
+		// Равнины - только пол
+		floorID = wg.getFloorBlockForBiome(biome)
+		activeID = block.AirBlockID
+
+	case height < MountainStart:
+		// Холмы - пол + возможные активные блоки
+		floorID = wg.getFloorBlockForBiome(biome)
+		activeID = block.AirBlockID // Деревья и другие объекты добавляются отдельно
+
+	default:
+		// Горы
+		floorID = block.StoneBlockID
+		// С некоторой вероятностью генерируем руду
+		if rng.Float64() < 0.1 { // 10% шанс руды
+			activeID = block.StoneBlockID // Пока используем камень, позже добавим руды
+		} else {
+			activeID = block.AirBlockID
+		}
+	}
+
+	return floorID, activeID
+}
+
+// getFloorBlockForBiome возвращает блок пола для указанного биома
+func (wg *WorldGenerator) getFloorBlockForBiome(biome BiomeType) block.BlockID {
+	switch biome {
+	case BiomeDesert:
+		return block.SandBlockID
+	case BiomeMountains:
+		return block.StoneBlockID
+	default:
+		return block.DirtBlockID
+	}
+}
+
 // getBiomeType определяет тип биома на основе значений шума
 func (wg *WorldGenerator) getBiomeType(height, biomeValue float64) BiomeType {
 	// Водные биомы в низинах
-	if height < 0.3 {
+	if height < DeepWaterMax {
+		return BiomeDeepWater
+	}
+	if height < ShallowWaterMax {
 		return BiomeWater
 	}
 
 	// Горные биомы на возвышенностях
-	if height > 0.7 {
+	if height > MountainStart {
 		return BiomeMountains
 	}
 
-	// Равнины в среднем диапазоне высот
+	// Для средних высот выбираем биом на основе biomeValue
+	if biomeValue < -0.3 {
+		return BiomeDesert
+	} else if biomeValue > 0.3 {
+		return BiomeForest
+	}
+
 	return BiomePlains
 }
 
-// getBlockForBiome возвращает тип блока для указанного биома
+// getBlockForBiome возвращает тип блока для указанного биома (устаревший метод, оставлен для совместимости)
 func (wg *WorldGenerator) getBlockForBiome(biome BiomeType, height float64, rng *rand.Rand) block.BlockID {
 	switch biome {
 	case BiomePlains:
@@ -138,6 +209,12 @@ func (wg *WorldGenerator) getBlockForBiome(biome BiomeType, height float64, rng 
 		return block.StoneBlockID
 	case BiomeWater:
 		return block.WaterBlockID
+	case BiomeDeepWater:
+		return block.DeepWaterBlockID
+	case BiomeDesert:
+		return block.SandBlockID
+	case BiomeForest:
+		return block.GrassBlockID
 	default:
 		return block.GrassBlockID
 	}
@@ -152,10 +229,4 @@ func (wg *WorldGenerator) placeTreeMetadata(chunk *Chunk, pos vec.Vec2, rng *ran
 		"tree_height": treeHeight,
 		"tree_type":   "oak", // Можно добавить разные типы деревьев
 	})
-}
-
-// GenerateChunk глобальная функция для обратной совместимости
-func GenerateChunk(seed int64, chunkCoords vec.Vec2) *Chunk {
-	generator := NewWorldGenerator(seed)
-	return generator.GenerateChunk(chunkCoords)
 }

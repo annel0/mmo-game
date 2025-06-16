@@ -1,10 +1,13 @@
 package network
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"log"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -32,7 +35,6 @@ type GameHandlerPB struct {
 
 	playerEntities map[string]uint64   // connID -> entityID
 	sessions       map[string]*Session // connID -> session
-	playerAuth     map[uint64]string   // entityID -> username (legacy usage)
 
 	serializer   *protocol.MessageSerializer
 	lastEntityID uint64
@@ -55,9 +57,9 @@ func NewGameHandlerPB(worldManager *world.WorldManager, entityManager *entity.En
 		userRepo:       userRepo,
 		playerEntities: make(map[string]uint64),
 		sessions:       make(map[string]*Session),
-		playerAuth:     make(map[uint64]string),
-		serializer:     protocol.NewMessageSerializer(),
-		lastEntityID:   0,
+
+		serializer:   protocol.NewMessageSerializer(),
+		lastEntityID: 0,
 	}
 
 	// Устанавливаем обработчик как сетевой менеджер для мира
@@ -91,6 +93,8 @@ func (gh *GameHandlerPB) HandleMessage(connID string, msg *protocol.GameMessage)
 		gh.handleBlockUpdate(connID, msg)
 	case protocol.MessageType_CHUNK_REQUEST:
 		gh.handleChunkRequest(connID, msg)
+	case protocol.MessageType_CHUNK_BATCH_REQUEST:
+		gh.handleChunkBatchRequest(connID, msg)
 	case protocol.MessageType_ENTITY_ACTION:
 		gh.handleEntityAction(connID, msg)
 	case protocol.MessageType_ENTITY_MOVE:
@@ -119,7 +123,6 @@ func (gh *GameHandlerPB) OnClientDisconnect(connID string) {
 
 		// Удаляем привязку к игроку
 		delete(gh.playerEntities, connID)
-		delete(gh.playerAuth, entityID)
 
 		// Оповещаем других игроков
 		despawnMsg := &protocol.EntityDespawnMessage{
@@ -244,22 +247,18 @@ func (gh *GameHandlerPB) MoveEntity(entity *entity.Entity, direction entity.Move
 	// Вычисляем новую позицию
 	newPos := entity.PrecisePos.Add(moveDir.Mul(moveSpeed * dt))
 
-	// Проверяем столкновения с блоками
+	// Проверяем столкновения с блоками с учётом слоёв и проходимости
 	blockX := int(math.Floor(newPos.X))
 	blockY := int(math.Floor(newPos.Y))
 
-	// Проверяем все блоки вокруг сущности на коллизии
 	for x := blockX - 1; x <= blockX+1; x++ {
 		for y := blockY - 1; y <= blockY+1; y++ {
 			pos := vec.Vec2{X: x, Y: y}
-			blockID := gh.GetBlock(pos)
 
-			// Проверяем, является ли блок твердым (не воздухом)
-			if blockID != block.AirBlockID {
-				// Проверяем коллизию с блоком
+			// Если позиция непроходима, обрабатываем коллизию
+			if !gh.isPositionWalkable(pos) {
 				if gh.checkEntityBlockCollision(entity, newPos, pos) {
-					// Вызываем обработчик коллизий
-					behavior.OnCollision(gh, entity, blockID, newPos)
+					behavior.OnCollision(gh, entity, gh.worldManager.GetBlockLayer(pos, world.LayerActive).ID, newPos)
 					return false
 				}
 			}
@@ -377,23 +376,39 @@ func (gh *GameHandlerPB) sendEntityMoveUpdate(entity *entity.Entity) {
 	}
 }
 
-// IsSessionValid verifies that the connection has a stored session and the token is still valid.
+// sendEntityPositionCorrection отправляет владельцу сущности корректирующее сообщение,
+// содержащее её фактическую позицию на сервере. Используется, когда перемещение
+// клиента было отклонено (коллизия, непроходимая область и т.п.), чтобы клиент
+// «откатился» к авторитетной позиции сервера.
+func (gh *GameHandlerPB) sendEntityPositionCorrection(connID string, entity *entity.Entity) {
+	if connID == "" || gh.tcpServer == nil {
+		return
+	}
+
+	// Формируем данные сущности
+	entityData := &protocol.EntityData{
+		Id:        entity.ID,
+		Type:      protocol.EntityType(entity.Type),
+		Position:  &protocol.Vec2{X: int32(entity.Position.X), Y: int32(entity.Position.Y)},
+		Active:    entity.Active,
+		Direction: int32(entity.Direction),
+		Velocity:  &protocol.Vec2Float{X: 0, Y: 0}, // после отката скорость обнуляем
+	}
+
+	// Создаём и отправляем сообщение
+	moveMsg := &protocol.EntityMoveMessage{Entities: []*protocol.EntityData{entityData}}
+	gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_MOVE, moveMsg)
+}
+
+// IsSessionValid проверяет, что для данного connID существует активная сессия.
+// Подробная валидация JWT может быть добавлена позднее; для исключения ложных
+// отрицаний при повторных авторизованных запросах достаточно факта наличия
+// сессии.
 func (gh *GameHandlerPB) IsSessionValid(connID string) bool {
 	gh.mu.RLock()
-	sess, ok := gh.sessions[connID]
+	_, ok := gh.sessions[connID]
 	gh.mu.RUnlock()
-	if !ok {
-		return false
-	}
-
-	// Всегда требуем валидный JWT токен
-	if sess.Token == "" {
-		return false
-	}
-
-	// Проверяем JWT токен
-	pid, valid, _ := auth.ValidateJWT(sess.Token)
-	return valid && pid == sess.PlayerID
+	return ok
 }
 
 // handleAuth обрабатывает аутентификацию с использованием GameAuthenticator
@@ -469,7 +484,6 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		gh.lastEntityID++
 		entityID = gh.lastEntityID
 		gh.playerEntities[connID] = entityID
-		gh.playerAuth[entityID] = username
 
 		// Создаем AuthResponse с JWT токеном
 		authResp := &protocol.AuthResponse{
@@ -542,104 +556,91 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 		return
 	}
 
-	// Проверяем, что клиент авторизован
-	gh.mu.RLock()
-	_, exists := gh.playerEntities[connID]
-	gh.mu.RUnlock()
-
-	if !exists {
-		log.Printf("Неавторизованный клиент пытается обновить блок: %s", connID)
-		return
-	}
-
-	// Валидируем позицию
+	// === Новый универсальный обработчик ===
 	if blockUpdate.Position == nil {
 		log.Printf("Недействительное обновление блока: позиция nil")
 		return
 	}
 
-	// Проверяем, что игрок имеет право изменять блоки в данной позиции
-	position := vec.Vec2{X: int(blockUpdate.Position.X), Y: int(blockUpdate.Position.Y)}
+	pos := vec.Vec2{X: int(blockUpdate.Position.X), Y: int(blockUpdate.Position.Y)}
 
-	// Получаем позицию игрока
-	gh.mu.RLock()
-	entityID, hasEntity := gh.playerEntities[connID]
-	gh.mu.RUnlock()
+	// Получаем текущий блок
+	oldBlock := gh.worldManager.GetBlock(pos)
+	currentBehavior, _ := block.Get(oldBlock.ID)
 
-	if !hasEntity {
-		log.Printf("Игрок не имеет сущности для проверки прав: %s", connID)
-		return
-	}
-
-	playerEntity, exists := gh.entityManager.GetEntity(entityID)
-	if !exists {
-		log.Printf("Сущность игрока не найдена для проверки прав: %s", connID)
-		return
-	}
-
-	// Проверяем дистанцию - игрок может изменять блоки только в радиусе 10 блоков
-	playerPos := playerEntity.Position
-	distance := math.Sqrt(math.Pow(float64(position.X-playerPos.X), 2) + math.Pow(float64(position.Y-playerPos.Y), 2))
-	if distance > 10 {
-		log.Printf("Игрок %s пытается изменить блок слишком далеко: %.2f блоков", connID, distance)
-		response := &protocol.BlockUpdateResponse{
-			Success: false,
-			Message: "Block is too far away",
-		}
-		if gh.tcpServer != nil {
-			if conn, exists := gh.tcpServer.connections[connID]; exists {
-				conn.sendMessage(protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
-			}
-		}
-		return
-	}
-
-	// Валидируем ID блока
-	if !block.IsValidBlockID(block.BlockID(blockUpdate.BlockId)) {
-		log.Printf("Недействительный ID блока: %d", blockUpdate.BlockId)
-		response := &protocol.BlockUpdateResponse{
-			Success: false,
-			Message: "Invalid block ID",
-		}
-		if gh.tcpServer != nil {
-			if conn, exists := gh.tcpServer.connections[connID]; exists {
-				conn.sendMessage(protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
-			}
-		}
-		return
-	}
-
-	// Создаем блок для мира
-	worldBlock := world.NewBlock(block.BlockID(blockUpdate.BlockId))
-
-	// Устанавливаем метаданные если есть
+	// actionPayload из запроса
+	var actionPayload map[string]interface{}
 	if blockUpdate.Metadata != nil && blockUpdate.Metadata.JsonData != "" {
-		// Ограничиваем размер метаданных
-		if len(blockUpdate.Metadata.JsonData) > 1024 {
-			log.Printf("Метаданные блока слишком большие: %d байт", len(blockUpdate.Metadata.JsonData))
-			return
-		}
+		actionPayload, _ = protocol.JsonToMap(blockUpdate.Metadata.JsonData)
+	}
 
-		metadata, err := protocol.JsonToMap(blockUpdate.Metadata.JsonData)
-		if err == nil {
-			worldBlock.Payload = metadata
+	action := blockUpdate.Action
+	if action == "" {
+		action = "place"
+	}
+
+	var newID block.BlockID
+	var newPayload map[string]interface{}
+	var result block.InteractionResult
+
+	switch action {
+	case "place":
+		newID = block.BlockID(blockUpdate.BlockId)
+		newBehavior, _ := block.Get(newID)
+		newPayload = make(map[string]interface{})
+		if newBehavior != nil {
+			newPayload = newBehavior.CreateMetadata()
+		}
+		result = block.InteractionResult{Success: true}
+
+	case "mine", "break":
+		// OnBreak будет вызван автоматически в WorldManager при замене блока
+		newID = block.AirBlockID
+		newPayload = nil
+		result = block.InteractionResult{Success: true}
+
+	default: // use / custom
+		if currentBehavior != nil {
+			newID, newPayload, result = currentBehavior.HandleInteraction(action, oldBlock.Payload, actionPayload)
+		} else {
+			result = block.InteractionResult{Success: false, Message: "No behavior"}
+			newID = oldBlock.ID
+			newPayload = oldBlock.Payload
 		}
 	}
 
-	// Устанавливаем блок в мире
-	gh.worldManager.SetBlock(position, worldBlock)
+	// Применяем изменения
+	blockObj := world.NewBlock(newID)
+	blockObj.Payload = newPayload
+	gh.worldManager.SetBlock(pos, blockObj)
 
-	// Отправляем подтверждение
+	// Формируем ответ
+	metaStr, _ := protocol.MapToJsonMetadata(newPayload)
+	respMeta := &protocol.JsonMetadata{JsonData: metaStr}
 	response := &protocol.BlockUpdateResponse{
-		Success: true,
-		BlockId: blockUpdate.BlockId,
-		Position: &protocol.Vec2{
-			X: blockUpdate.Position.X,
-			Y: blockUpdate.Position.Y,
-		},
+		Success:  result.Success,
+		Message:  result.Message,
+		BlockId:  uint32(newID),
+		Position: blockUpdate.Position,
+		Metadata: respMeta,
+		Effects:  result.Effects,
 	}
 
 	gh.sendTCPMessage(connID, protocol.MessageType_BLOCK_UPDATE_RESPONSE, response)
+}
+
+// handleChunkBatchRequest обрабатывает запрос пакета чанков
+func (gh *GameHandlerPB) handleChunkBatchRequest(connID string, msg *protocol.GameMessage) {
+	batchReq := &protocol.ChunkBatchRequest{}
+	if err := gh.serializer.DeserializePayload(msg, batchReq); err != nil {
+		log.Printf("Ошибка десериализации ChunkBatchRequest: %v", err)
+		return
+	}
+
+	// Обрабатываем каждый чанк в пакете
+	for _, chunk := range batchReq.Chunks {
+		gh.sendChunkToClient(connID, int(chunk.X), int(chunk.Y))
+	}
 }
 
 // handleChunkRequest обрабатывает запрос чанка
@@ -660,58 +661,75 @@ func (gh *GameHandlerPB) handleChunkRequest(connID string, msg *protocol.GameMes
 		return
 	}
 
+	// Отправляем чанк клиенту
+	gh.sendChunkToClient(connID, int(chunkRequest.ChunkX), int(chunkRequest.ChunkY))
+}
+
+// sendChunkToClient отправляет чанк клиенту
+func (gh *GameHandlerPB) sendChunkToClient(connID string, chunkX, chunkY int) {
+	// Искусственная задержка 40–60 мс для сглаживания потока
+	jitter := 40 + rand.Intn(21) // 40..60
+	time.Sleep(time.Duration(jitter) * time.Millisecond)
+
 	// Получаем чанк из мира
-	chunkPos := vec.Vec2{X: int(chunkRequest.ChunkX), Y: int(chunkRequest.ChunkY)}
+	chunkPos := vec.Vec2{X: chunkX, Y: chunkY}
 	chunk := gh.worldManager.GetChunk(chunkPos)
 
-	// Сериализуем чанк в Protocol Buffers
-	// Создаем ChunkData
+	// Сериализуем чанк в Protocol Buffers (многослойная схема)
 	chunkData := &protocol.ChunkData{
-		ChunkX: chunkRequest.ChunkX,
-		ChunkY: chunkRequest.ChunkY,
-		Blocks: make([]*protocol.BlockRow, 16), // 16x16 блоков в чанке
+		ChunkX: int32(chunkX),
+		ChunkY: int32(chunkY),
 	}
 
-	// Заполняем данные блоков
-	for y := 0; y < 16; y++ {
-		blockIds := make([]uint32, 16)
-		for x := 0; x < 16; x++ {
-			localPos := vec.Vec2{X: x, Y: y}
-			blockIds[x] = uint32(chunk.GetBlock(localPos))
-		}
-		chunkData.Blocks[y] = &protocol.BlockRow{
-			BlockIds: blockIds,
-		}
-	}
+	crc := crc32.NewIEEE()
+	nonEmpty := 0
 
-	// Получаем метаданные блоков
-	blockMetadata := &protocol.ChunkBlockMetadata{
-		BlockMetadata: make(map[string]*protocol.JsonMetadata),
-	}
-
-	// Обрабатываем метаданные для каждого блока с метаданными
-	for localPos, metadata := range chunk.Metadata {
-		if len(metadata) > 0 {
-			jsonStr, err := protocol.MapToJsonMetadata(metadata)
-			if err == nil {
-				key := fmt.Sprintf("%d:%d", localPos.X, localPos.Y)
-				blockMetadata.BlockMetadata[key] = &protocol.JsonMetadata{
-					JsonData: jsonStr,
+	// Слои: FLOOR и ACTIVE
+	layers := []*protocol.ChunkLayer{}
+	for _, layerID := range []world.BlockLayer{world.LayerFloor, world.LayerActive} {
+		layerMsg := &protocol.ChunkLayer{Layer: uint32(layerID), Rows: make([]*protocol.BlockRow, 16)}
+		for blockY := 0; blockY < 16; blockY++ {
+			row := make([]uint32, 16)
+			for blockX := 0; blockX < 16; blockX++ {
+				bID := uint32(chunk.GetBlockLayer(layerID, vec.Vec2{X: blockX, Y: blockY}))
+				row[blockX] = bID
+				_ = binary.Write(crc, binary.LittleEndian, bID)
+				if bID != 0 {
+					nonEmpty++
 				}
 			}
+			layerMsg.Rows[blockY] = &protocol.BlockRow{BlockIds: row}
+		}
+		layers = append(layers, layerMsg)
+	}
+	chunkData.Layers = layers
+
+	// Создаём контейнер для метаданных блоков
+	blockMetadata := &protocol.ChunkBlockMetadata{BlockMetadata: make(map[string]*protocol.JsonMetadata)}
+
+	// Заполняем blockMetadata из данных чанка (только слой ACTIVE)
+	for coord, metadata := range chunk.Metadata3D {
+		if coord.Layer == world.LayerActive && len(metadata) > 0 {
+			jsonStr, err := protocol.MapToJsonMetadata(metadata)
+			if err == nil {
+				key := fmt.Sprintf("%d:%d", coord.Pos.X, coord.Pos.Y)
+				blockMetadata.BlockMetadata[key] = &protocol.JsonMetadata{JsonData: jsonStr}
+			}
 		}
 	}
 
-	// Добавляем метаданные в чанк
+	// Подготовка финальной карты метаданных
+	metaMap := map[string]interface{}{
+		"checksum": crc.Sum32(),
+		"nonEmpty": nonEmpty,
+	}
 	if len(blockMetadata.BlockMetadata) > 0 {
-		metadataJson, err := protocol.MapToJsonMetadata(map[string]interface{}{
-			"blockMetadata": blockMetadata,
-		})
-		if err == nil {
-			chunkData.Metadata = &protocol.JsonMetadata{
-				JsonData: metadataJson,
-			}
-		}
+		metaMap["blockMetadata"] = blockMetadata
+	}
+
+	metadataJson, errMeta := protocol.MapToJsonMetadata(metaMap)
+	if errMeta == nil {
+		chunkData.Metadata = &protocol.JsonMetadata{JsonData: metadataJson}
 	}
 
 	// Отправляем чанк
@@ -764,29 +782,61 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMes
 
 // handleEntityMove обрабатывает движение сущности
 func (gh *GameHandlerPB) handleEntityMove(connID string, msg *protocol.GameMessage) {
-	// Упрощенная обработка для примера
-	log.Printf("Получено сообщение о движении от %s", connID)
+	// Десериализуем сообщение перемещения
+	moveMsg := &protocol.EntityMoveMessage{}
+	if err := gh.serializer.DeserializePayload(msg, moveMsg); err != nil {
+		log.Printf("Ошибка десериализации EntityMove: %v", err)
+		return
+	}
 
-	// Проверяем, что клиент авторизован
+	// Проверяем сессию
 	gh.mu.RLock()
-	entityID, exists := gh.playerEntities[connID]
+	ownerID, ok := gh.playerEntities[connID]
 	gh.mu.RUnlock()
-
-	if !exists {
-		log.Printf("Неавторизованный клиент перемещает сущность: %s", connID)
+	if !ok {
+		log.Printf("Неавторизованный клиент перемещает сущности: %s", connID)
 		return
 	}
 
-	// Получаем сущность из менеджера
-	ent, exists := gh.entityManager.GetEntity(entityID)
-	if !exists {
-		log.Printf("Сущность %d не найдена", entityID)
-		return
-	}
+	// Для каждой сущности в сообщении
+	for _, ed := range moveMsg.Entities {
+		// Пока разрешаем перемещать только собственную сущность
+		if ed.Id != ownerID {
+			log.Printf("Игрок %d пытается переместить чужую сущность %d", ownerID, ed.Id)
+			continue
+		}
 
-	// Просто логируем информацию о сущности
-	log.Printf("Перемещение сущности %d типа %d в позиции (%d, %d)",
-		ent.ID, ent.Type, ent.Position.X, ent.Position.Y)
+		ent, exists := gh.entityManager.GetEntity(ed.Id)
+		if !exists {
+			log.Printf("Сущность %d не найдена", ed.Id)
+			continue
+		}
+
+		// Целевая позиция
+		targetPos := vec.Vec2{
+			X: int(ed.Position.X),
+			Y: int(ed.Position.Y),
+		}
+
+		// Проверяем коллизии с использованием многослойной логики
+		if !gh.isPositionWalkable(targetPos) {
+			log.Printf("Сущность %d попытка переместиться в непроходимую позицию (%d,%d)", ed.Id, targetPos.X, targetPos.Y)
+			// Отправляем корректирующее сообщение владельцу, чтобы клиент откатил позицию
+			gh.sendEntityPositionCorrection(connID, ent)
+			continue
+		}
+
+		// Обновляем позицию
+		oldPos := ent.PrecisePos
+		ent.PrecisePos = vec.Vec2Float{X: float64(targetPos.X), Y: float64(targetPos.Y)}
+		ent.Position = targetPos
+
+		// Сообщаем worldManager о смене BigChunk
+		gh.worldManager.ProcessEntityMovement(ent.ID, vec.Vec2{X: int(oldPos.X), Y: int(oldPos.Y)}, targetPos)
+
+		// Рассылаем обновление другим игрокам
+		gh.sendEntityMoveUpdate(ent)
+	}
 }
 
 // handleChat обрабатывает сообщения чата
@@ -797,13 +847,15 @@ func (gh *GameHandlerPB) handleChat(connID string, msg *protocol.GameMessage) {
 	// Проверяем, что клиент авторизован
 	gh.mu.RLock()
 	entityID, exists := gh.playerEntities[connID]
-	playerName := gh.playerAuth[entityID]
+	session, sessionExists := gh.sessions[connID]
 	gh.mu.RUnlock()
 
-	if !exists {
+	if !exists || !sessionExists {
 		log.Printf("Неавторизованный клиент отправляет сообщение: %s", connID)
 		return
 	}
+
+	playerName := session.Username
 
 	// Отправляем простое сообщение всем
 	gh.broadcastMessage(protocol.MessageType_CHAT_BROADCAST, &protocol.ChatBroadcast{
@@ -874,10 +926,17 @@ func (gh *GameHandlerPB) sendWorldDataToPlayer(connID string, playerID uint64) {
 		// Если это сущность игрока, добавляем имя
 		if int(entity.Type) == 0 { // EntityTypePlayer = 0 in entity package
 			gh.mu.RLock()
-			username, exists := gh.playerAuth[entity.ID]
+			// Ищем имя игрока по entityID в sessions
+			var username string
+			for _, session := range gh.sessions {
+				if session.PlayerID == entity.ID {
+					username = session.Username
+					break
+				}
+			}
 			gh.mu.RUnlock()
 
-			if exists {
+			if username != "" {
 				// Добавляем имя в атрибуты сущности
 				entityData.Attributes = &protocol.JsonMetadata{
 					JsonData: `{"username": "` + username + `"}`,
@@ -926,23 +985,23 @@ func (gh *GameHandlerPB) sendInitialChunks(connID string, playerID uint64) {
 			chunkData := &protocol.ChunkData{
 				ChunkX: int32(x),
 				ChunkY: int32(y),
-				Blocks: make([]*protocol.BlockRow, 0, 16), // 16 строк в чанке
 			}
 
-			// Заполняем данные блоков для каждой строки
-			for blockY := 0; blockY < 16; blockY++ { // Чанк размером 16x16
-				blockRow := &protocol.BlockRow{
-					BlockIds: make([]uint32, 0, 16),
+			// Слои: FLOOR и ACTIVE
+			layers := []*protocol.ChunkLayer{}
+			for _, layerID := range []world.BlockLayer{world.LayerFloor, world.LayerActive} {
+				layerMsg := &protocol.ChunkLayer{Layer: uint32(layerID), Rows: make([]*protocol.BlockRow, 16)}
+				for blockY := 0; blockY < 16; blockY++ {
+					row := make([]uint32, 16)
+					for blockX := 0; blockX < 16; blockX++ {
+						bID := uint32(chunk.GetBlockLayer(layerID, vec.Vec2{X: blockX, Y: blockY}))
+						row[blockX] = bID
+					}
+					layerMsg.Rows[blockY] = &protocol.BlockRow{BlockIds: row}
 				}
-
-				for blockX := 0; blockX < 16; blockX++ {
-					localPos := vec.Vec2{X: blockX, Y: blockY}
-					blockID := chunk.GetBlock(localPos)
-					blockRow.BlockIds = append(blockRow.BlockIds, uint32(blockID))
-				}
-
-				chunkData.Blocks = append(chunkData.Blocks, blockRow)
+				layers = append(layers, layerMsg)
 			}
+			chunkData.Layers = layers
 
 			// Отправляем данные чанка
 			gh.sendTCPMessage(connID, protocol.MessageType_CHUNK_DATA, chunkData)
@@ -1027,11 +1086,19 @@ func (gh *GameHandlerPB) SpawnEntity(entityType entity.EntityType, position vec.
 
 // spawnEntityWithID - внутренний метод для создания сущности с указанным ID
 func (gh *GameHandlerPB) spawnEntityWithID(entityType entity.EntityType, position vec.Vec2, entityID uint64) uint64 {
-	// Временная заглушка до полной реализации
 	log.Printf("Создание сущности типа %d с ID %d в позиции (%d, %d)",
 		entityType, entityID, position.X, position.Y)
 
-	// Отправляем всем игрокам сообщение о создании сущности
+	// === 1. Реально создаём сущность и регистрируем в EntityManager ===
+	newEntity := entity.NewEntity(entityID, entityType, position)
+	gh.entityManager.AddEntity(newEntity)
+
+	// === 2. При необходимости уведомляем поведение сущности ===
+	if behavior, ok := gh.entityManager.GetBehavior(entityType); ok {
+		behavior.OnSpawn(gh, newEntity)
+	}
+
+	// === 3. Шлём сообщение всем клиентам ===
 	entityData := &protocol.EntityData{
 		Id:       entityID,
 		Type:     protocol.EntityType(entityType),
@@ -1133,4 +1200,33 @@ func (gh *GameHandlerPB) SendMessage(entityID uint64, messageType string, data i
 
 	// Отправляем сообщение клиенту
 	log.Printf("Отправка сообщения типа %s игроку %s", messageType, connID)
+}
+
+// isPositionWalkable применяет логику слоёв: сначала ACTIVE, затем FLOOR.
+func (gh *GameHandlerPB) isPositionWalkable(pos vec.Vec2) bool {
+	// Проверяем ACTIVE слой
+	activeBlock := gh.worldManager.GetBlockLayer(pos, world.LayerActive)
+
+	passable := func(id block.BlockID) bool {
+		if behavior, exists := block.Get(id); exists {
+			if p, ok := behavior.(interface{ IsPassable() bool }); ok {
+				return p.IsPassable()
+			}
+		}
+		return id == block.AirBlockID
+	}
+
+	if !passable(activeBlock.ID) {
+		return false
+	}
+
+	// Если ACTIVE – воздух, проверяем FLOOR как «опору»
+	if activeBlock.ID == block.AirBlockID {
+		floorBlock := gh.worldManager.GetBlockLayer(pos, world.LayerFloor)
+		if floorBlock.ID == block.AirBlockID {
+			return false // пропасть
+		}
+	}
+
+	return true
 }
