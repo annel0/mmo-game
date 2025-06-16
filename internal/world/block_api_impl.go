@@ -207,7 +207,8 @@ func (api *chunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.Block
 }
 
 func (api *chunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
-	api.world.SetBlockLayer(pos, BlockLayer(layer), Block{ID: id})
+	// TODO: Реализовать установку блока на конкретном слое
+	api.SetBlock(pos, id)
 }
 
 func (api *bigChunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.BlockID {
@@ -215,7 +216,50 @@ func (api *bigChunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.Bl
 }
 
 func (api *bigChunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
-	api.world.SetBlockLayer(pos, BlockLayer(layer), Block{ID: id})
+	// TODO: Реализовать установку блока на конкретном слое
+	// Пока используем активный слой
+	api.SetBlock(pos, id)
+}
+
+// ScheduleUpdateOnce помечает блок для разового обновления в следующем тике
+func (api *bigChunkBlockAPI) ScheduleUpdateOnce(pos vec.Vec2) {
+	api.bigChunk.AddOnceTickable(pos)
+}
+
+// TriggerNeighborUpdates запускает разовое обновление для всех соседних блоков
+func (api *bigChunkBlockAPI) TriggerNeighborUpdates(pos vec.Vec2) {
+	// Обновляем 4 соседних блока
+	neighbors := []vec.Vec2{
+		{X: pos.X + 1, Y: pos.Y}, // право
+		{X: pos.X - 1, Y: pos.Y}, // лево
+		{X: pos.X, Y: pos.Y + 1}, // вниз
+		{X: pos.X, Y: pos.Y - 1}, // вверх
+	}
+
+	for _, neighbor := range neighbors {
+		api.ScheduleUpdateOnce(neighbor)
+	}
+}
+
+// ScheduleUpdateOnce помечает блок для разового обновления в следующем тике
+func (api *chunkBlockAPI) ScheduleUpdateOnce(pos vec.Vec2) {
+	// Делегируем вызов к BigChunk
+	api.bigChunk.AddOnceTickable(pos)
+}
+
+// TriggerNeighborUpdates запускает разовое обновление для всех соседних блоков
+func (api *chunkBlockAPI) TriggerNeighborUpdates(pos vec.Vec2) {
+	// Обновляем 4 соседних блока
+	neighbors := []vec.Vec2{
+		{X: pos.X + 1, Y: pos.Y}, // право
+		{X: pos.X - 1, Y: pos.Y}, // лево
+		{X: pos.X, Y: pos.Y + 1}, // вниз
+		{X: pos.X, Y: pos.Y - 1}, // вверх
+	}
+
+	for _, neighbor := range neighbors {
+		api.ScheduleUpdateOnce(neighbor)
+	}
 }
 
 // ... другие методы

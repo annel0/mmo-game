@@ -4,8 +4,8 @@ package protocol;
 
 option go_package = "github.com/annel0/mmo-game/internal/protocol";
 
-import "internal/protocol/proto/common.proto";
-import "internal/protocol/proto/entity.proto";
+import "common.proto";
+import "entity.proto";
 
 // Запрос на получение чанка
 message ChunkRequest {
@@ -13,13 +13,25 @@ message ChunkRequest {
   int32 chunk_y = 2;
 }
 
-// Данные чанка
+// Запрос списка чанков
+message ChunkBatchRequest {
+  repeated Vec2 chunks = 1; // Координаты чанков
+}
+
+// Данные одного слоя чанка
+message ChunkLayer {
+  uint32 layer = 1;                 // Номер слоя: 0=floor,1=active,2=ceiling
+  repeated BlockRow rows = 2;       // Срочки блоков этого слоя
+  // В будущем можно добавить специфичные метаданные слоя
+}
+
+// Данные чанка (многослойная версия, заменяет старое поле blocks)
 message ChunkData {
   int32 chunk_x = 1;
   int32 chunk_y = 2;
-  repeated BlockRow blocks = 3; // Матрица блоков в чанке
+  repeated ChunkLayer layers = 3;   // Все слои чанка
   repeated EntityData entities = 4; // Сущности в чанке
-  JsonMetadata metadata = 5; // JSON-метаданные чанка
+  JsonMetadata metadata = 5;        // JSON-метаданные чанка
 }
 
 // Строка блоков в чанке
@@ -30,4 +42,43 @@ message BlockRow {
 // Данные метаданных блоков в чанке
 message ChunkBlockMetadata {
   map<string, JsonMetadata> block_metadata = 1; // Ключ в формате "x:y", значение - метаданные блока
+}
+
+// Дельта изменений блоков в чанке
+message ChunkBlockDelta {
+  Vec2 chunk_coords = 1;                      // Координаты чанка
+  repeated BlockChange block_changes = 2;      // Список изменённых блоков
+  uint64 delta_version = 3;                   // Версия изменений для порядка применения
+  uint32 crc32 = 4;                          // Контрольная сумма для проверки целостности
+}
+
+// Изменение одного блока
+message BlockChange {
+  Vec2 local_pos = 1;                         // Локальные координаты в чанке (0-15)
+  uint32 layer = 2;                           // Слой, на котором происходит изменение
+  uint32 block_id = 3;                        // Новый ID блока
+  JsonMetadata metadata = 4;                  // Метаданные блока
+  string change_type = 5;                     // Тип изменения: "set", "break", "place", "update"
+}
+
+// Событие изменения блока (для broadcast всем игрокам)
+message BlockEvent {
+  Vec2 world_pos = 1;                         // Глобальные координаты блока
+  uint32 block_id = 2;                        // ID блока
+  JsonMetadata metadata = 3;                   // Метаданные
+  string event_type = 4;                      // Тип события: "break", "place", "interact"
+  repeated string effects = 5;                // Визуальные/звуковые эффекты
+  uint64 player_id = 6;                       // ID игрока, вызвавшего изменение
+}
+
+// Запрос на подписку на обновления блоков в области
+message SubscribeBlockUpdates {
+  Vec2 center = 1;                           // Центр области
+  int32 radius = 2;                          // Радиус в чанках
+}
+
+// Отписка от обновлений блоков
+message UnsubscribeBlockUpdates {
+  Vec2 center = 1;                           // Центр области
+  int32 radius = 2;                          // Радиус в чанках
 } 

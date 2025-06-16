@@ -16,7 +16,7 @@ type BlockLayer uint8
 
 const (
 	LayerFloor  BlockLayer = iota
-	LayerActive            // главный слой совместимости
+	LayerActive            // главный игровой слой
 	LayerCeiling
 
 	MaxLayers // всегда последний: количество слоев

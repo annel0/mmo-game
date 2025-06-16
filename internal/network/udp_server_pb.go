@@ -295,6 +295,11 @@ func (s *UDPServerPB) SetGameHandler(handler *GameHandlerPB) {
 
 // SendEntityUpdatesPB отправляет обновления сущностей клиенту через UDP
 func (s *UDPServerPB) SendEntityUpdatesPB(playerID uint64, entities []world.EntityData) {
+	if len(entities) == 0 {
+		// Нечего отправлять — избегаем лишнего трафика и «пустых» пакетов
+		return
+	}
+
 	logging.Debug("UDP: Отправка обновлений сущностей игроку %d (%d сущностей)", playerID, len(entities))
 
 	// Находим клиента

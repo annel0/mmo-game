@@ -45,6 +45,12 @@ const (
 	MessageType_PLAYER_INVENTORY       MessageType = 17
 	MessageType_GAME_EVENT             MessageType = 18
 	MessageType_SERVER_MESSAGE         MessageType = 19
+	MessageType_CHUNK_BATCH_REQUEST    MessageType = 20 // Запрос сразу нескольких чанков
+	// Новые типы для delta-обновлений блоков
+	MessageType_CHUNK_BLOCK_DELTA         MessageType = 21 // Дельта изменений блоков в чанке
+	MessageType_BLOCK_EVENT               MessageType = 22 // Событие изменения блока
+	MessageType_SUBSCRIBE_BLOCK_UPDATES   MessageType = 23 // Подписка на обновления блоков
+	MessageType_UNSUBSCRIBE_BLOCK_UPDATES MessageType = 24 // Отписка от обновлений блоков
 )
 
 // Enum value maps for MessageType.
@@ -70,28 +76,38 @@ var (
 		17: "PLAYER_INVENTORY",
 		18: "GAME_EVENT",
 		19: "SERVER_MESSAGE",
+		20: "CHUNK_BATCH_REQUEST",
+		21: "CHUNK_BLOCK_DELTA",
+		22: "BLOCK_EVENT",
+		23: "SUBSCRIBE_BLOCK_UPDATES",
+		24: "UNSUBSCRIBE_BLOCK_UPDATES",
 	}
 	MessageType_value = map[string]int32{
-		"UNKNOWN":                0,
-		"AUTH":                   1,
-		"AUTH_RESPONSE":          2,
-		"CHUNK_DATA":             3,
-		"CHUNK_REQUEST":          4,
-		"PING":                   5,
-		"BLOCK_UPDATE":           6,
-		"BLOCK_UPDATE_RESPONSE":  7,
-		"ENTITY_SPAWN":           8,
-		"ENTITY_MOVE":            9,
-		"ENTITY_ACTION":          10,
-		"ENTITY_ACTION_RESPONSE": 11,
-		"CHAT":                   12,
-		"CHAT_BROADCAST":         13,
-		"ENTITY_DESPAWN":         14,
-		"WORLD_EVENT":            15,
-		"PLAYER_STATS":           16,
-		"PLAYER_INVENTORY":       17,
-		"GAME_EVENT":             18,
-		"SERVER_MESSAGE":         19,
+		"UNKNOWN":                   0,
+		"AUTH":                      1,
+		"AUTH_RESPONSE":             2,
+		"CHUNK_DATA":                3,
+		"CHUNK_REQUEST":             4,
+		"PING":                      5,
+		"BLOCK_UPDATE":              6,
+		"BLOCK_UPDATE_RESPONSE":     7,
+		"ENTITY_SPAWN":              8,
+		"ENTITY_MOVE":               9,
+		"ENTITY_ACTION":             10,
+		"ENTITY_ACTION_RESPONSE":    11,
+		"CHAT":                      12,
+		"CHAT_BROADCAST":            13,
+		"ENTITY_DESPAWN":            14,
+		"WORLD_EVENT":               15,
+		"PLAYER_STATS":              16,
+		"PLAYER_INVENTORY":          17,
+		"GAME_EVENT":                18,
+		"SERVER_MESSAGE":            19,
+		"CHUNK_BATCH_REQUEST":       20,
+		"CHUNK_BLOCK_DELTA":         21,
+		"BLOCK_EVENT":               22,
+		"SUBSCRIBE_BLOCK_UPDATES":   23,
+		"UNSUBSCRIBE_BLOCK_UPDATES": 24,
 	}
 )
 
@@ -120,6 +136,56 @@ func (x MessageType) Number() protoreflect.EnumNumber {
 // Deprecated: Use MessageType.Descriptor instead.
 func (MessageType) EnumDescriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{0}
+}
+
+// Логические этажи блока
+type BlockLayer int32
+
+const (
+	BlockLayer_FLOOR   BlockLayer = 0
+	BlockLayer_ACTIVE  BlockLayer = 1
+	BlockLayer_CEILING BlockLayer = 2
+)
+
+// Enum value maps for BlockLayer.
+var (
+	BlockLayer_name = map[int32]string{
+		0: "FLOOR",
+		1: "ACTIVE",
+		2: "CEILING",
+	}
+	BlockLayer_value = map[string]int32{
+		"FLOOR":   0,
+		"ACTIVE":  1,
+		"CEILING": 2,
+	}
+)
+
+func (x BlockLayer) Enum() *BlockLayer {
+	p := new(BlockLayer)
+	*p = x
+	return p
+}
+
+func (x BlockLayer) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BlockLayer) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_proto_enumTypes[1].Descriptor()
+}
+
+func (BlockLayer) Type() protoreflect.EnumType {
+	return &file_common_proto_enumTypes[1]
+}
+
+func (x BlockLayer) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BlockLayer.Descriptor instead.
+func (BlockLayer) EnumDescriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{1}
 }
 
 // Общая структура сообщения, которая содержит тип и сериализованные данные
@@ -379,7 +445,7 @@ const file_common_proto_rawDesc = "" +
 	"\x01y\x18\x02 \x01(\x05R\x01y\"'\n" +
 	"\tVec2Float\x12\f\n" +
 	"\x01x\x18\x01 \x01(\x02R\x01x\x12\f\n" +
-	"\x01y\x18\x02 \x01(\x02R\x01y*\xf2\x02\n" +
+	"\x01y\x18\x02 \x01(\x02R\x01y*\xef\x03\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04AUTH\x10\x01\x12\x11\n" +
@@ -403,7 +469,18 @@ const file_common_proto_rawDesc = "" +
 	"\x10PLAYER_INVENTORY\x10\x11\x12\x0e\n" +
 	"\n" +
 	"GAME_EVENT\x10\x12\x12\x12\n" +
-	"\x0eSERVER_MESSAGE\x10\x13B.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
+	"\x0eSERVER_MESSAGE\x10\x13\x12\x17\n" +
+	"\x13CHUNK_BATCH_REQUEST\x10\x14\x12\x15\n" +
+	"\x11CHUNK_BLOCK_DELTA\x10\x15\x12\x0f\n" +
+	"\vBLOCK_EVENT\x10\x16\x12\x1b\n" +
+	"\x17SUBSCRIBE_BLOCK_UPDATES\x10\x17\x12\x1d\n" +
+	"\x19UNSUBSCRIBE_BLOCK_UPDATES\x10\x18*0\n" +
+	"\n" +
+	"BlockLayer\x12\t\n" +
+	"\x05FLOOR\x10\x00\x12\n" +
+	"\n" +
+	"\x06ACTIVE\x10\x01\x12\v\n" +
+	"\aCEILING\x10\x02B.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
 
 var (
 	file_common_proto_rawDescOnce sync.Once
@@ -417,14 +494,15 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_common_proto_goTypes = []any{
 	(MessageType)(0),     // 0: protocol.MessageType
-	(*GameMessage)(nil),  // 1: protocol.GameMessage
-	(*JsonMetadata)(nil), // 2: protocol.JsonMetadata
-	(*Vec2)(nil),         // 3: protocol.Vec2
-	(*Vec2Float)(nil),    // 4: protocol.Vec2Float
+	(BlockLayer)(0),      // 1: protocol.BlockLayer
+	(*GameMessage)(nil),  // 2: protocol.GameMessage
+	(*JsonMetadata)(nil), // 3: protocol.JsonMetadata
+	(*Vec2)(nil),         // 4: protocol.Vec2
+	(*Vec2Float)(nil),    // 5: protocol.Vec2Float
 }
 var file_common_proto_depIdxs = []int32{
 	0, // 0: protocol.GameMessage.type:type_name -> protocol.MessageType
@@ -446,7 +524,7 @@ func file_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,

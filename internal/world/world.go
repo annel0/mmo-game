@@ -6,8 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/annel0/mmo-game/internal/storage_interface"
 	"github.com/annel0/mmo-game/internal/vec"
+	"github.com/annel0/mmo-game/internal/world/block"
 )
+
+// BlockID представляет идентификатор блока (алиас для избежания циклического импорта)
+type BlockID uint16
 
 // NetworkManager представляет сетевой менеджер для отправки обновлений клиентам
 type NetworkManager interface {
@@ -424,8 +429,11 @@ func (wm *WorldManager) SetBlockLayer(pos vec.Vec2, layer BlockLayer, block Bloc
 
 	chunk.SetBlockLayer(layer, localPos, block.ID)
 
-	if len(block.Payload) > 0 {
-		chunk.SetBlockMetadataLayer(layer, localPos, "payload", block.Payload) // simplistic
+	// Сохраняем метаданные поключно
+	if block.Payload != nil {
+		for key, value := range block.Payload {
+			chunk.SetBlockMetadataLayer(layer, localPos, key, value)
+		}
 	}
 }
 
@@ -571,4 +579,222 @@ func (wm *WorldManager) GetChunk(coords vec.Vec2) *Chunk {
 // SetNetworkManager устанавливает сетевой менеджер для отправки обновлений клиентам
 func (wm *WorldManager) SetNetworkManager(networkManager NetworkManager) {
 	wm.networkManager = networkManager
+}
+
+// ===== Полноценный BlockAPI для WorldManager =====
+
+// GetBlockWithMetadata возвращает блок с метаданными по координатам
+func (wm *WorldManager) GetBlockWithMetadata(pos vec.Vec2) Block {
+	return wm.GetBlock(pos)
+}
+
+// SetBlockWithMetadata устанавливает блок с метаданными
+func (wm *WorldManager) SetBlockWithMetadata(pos vec.Vec2, blockID BlockID, metadata map[string]interface{}) {
+	// Конвертируем локальный BlockID в block.BlockID через преобразование типов
+	worldBlockID := block.BlockID(blockID)
+	block := NewBlock(worldBlockID)
+	block.Payload = metadata
+	wm.SetBlock(pos, block)
+}
+
+// QueryBlocks возвращает блоки в указанной области
+func (wm *WorldManager) QueryBlocks(topLeft, bottomRight vec.Vec2) map[vec.Vec2]Block {
+	result := make(map[vec.Vec2]Block)
+
+	// Проходим по всем позициям в прямоугольнике
+	for x := topLeft.X; x <= bottomRight.X; x++ {
+		for y := topLeft.Y; y <= bottomRight.Y; y++ {
+			pos := vec.Vec2{X: x, Y: y}
+			block := wm.GetBlock(pos)
+			result[pos] = block
+		}
+	}
+
+	return result
+}
+
+// BatchUpdate выполняет массовое обновление блоков
+func (wm *WorldManager) BatchUpdate(updates map[vec.Vec2]Block) error {
+	// Группируем обновления по BigChunk для оптимизации
+	bigChunkUpdates := make(map[vec.Vec2]map[vec.Vec2]Block)
+
+	for pos, block := range updates {
+		bigChunkCoords := pos.ToBigChunkCoords()
+		if bigChunkUpdates[bigChunkCoords] == nil {
+			bigChunkUpdates[bigChunkCoords] = make(map[vec.Vec2]Block)
+		}
+		bigChunkUpdates[bigChunkCoords][pos] = block
+	}
+
+	// Применяем обновления по BigChunk
+	for bigChunkCoords, chunkUpdates := range bigChunkUpdates {
+		// Получаем или создаём BigChunk
+		wm.mu.RLock()
+		bigChunk, exists := wm.bigChunks[bigChunkCoords]
+		wm.mu.RUnlock()
+
+		if !exists {
+			wm.mu.Lock()
+			bigChunk, exists = wm.bigChunks[bigChunkCoords]
+			if !exists {
+				bigChunk = wm.createBigChunk(bigChunkCoords)
+			}
+			wm.mu.Unlock()
+		}
+
+		// Применяем каждое обновление в BigChunk
+		for pos, block := range chunkUpdates {
+			// Создаём событие блока
+			blockEvent := BlockEvent{
+				EventType:   EventTypeBlockChange,
+				SourceChunk: pos.ToChunkCoords(),
+				TargetChunk: pos.ToChunkCoords(),
+				Position:    pos,
+				Block:       block,
+			}
+
+			// Отправляем событие в BigChunk
+			select {
+			case bigChunk.eventsIn <- blockEvent:
+				// Успешно отправлено
+			default:
+				log.Printf("Канал событий BigChunk %v переполнен, пропускаем обновление блока %v", bigChunkCoords, pos)
+			}
+		}
+	}
+
+	return nil
+}
+
+// GetBlockMetadataValue возвращает конкретное значение метаданных блока
+func (wm *WorldManager) GetBlockMetadataValue(pos vec.Vec2, key string) (interface{}, bool) {
+	block := wm.GetBlock(pos)
+	if block.Payload != nil {
+		if value, exists := block.Payload[key]; exists {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
+// SetBlockMetadataValue устанавливает конкретное значение метаданных блока
+func (wm *WorldManager) SetBlockMetadataValue(pos vec.Vec2, key string, value interface{}) {
+	// Напрямую обновляем метаданные в чанке
+	bigChunkCoords := pos.ToBigChunkCoords()
+	chunkCoords := pos.ToChunkCoords()
+	localPos := pos.LocalInChunk()
+
+	wm.mu.RLock()
+	bigChunk, exists := wm.bigChunks[bigChunkCoords]
+	wm.mu.RUnlock()
+
+	if !exists {
+		wm.mu.Lock()
+		bigChunk, exists = wm.bigChunks[bigChunkCoords]
+		if !exists {
+			bigChunk = wm.createBigChunk(bigChunkCoords)
+		}
+		wm.mu.Unlock()
+	}
+
+	bigChunk.mu.RLock()
+	chunk, exists := bigChunk.chunks[chunkCoords]
+	bigChunk.mu.RUnlock()
+
+	if !exists {
+		chunk = wm.generateChunk(chunkCoords)
+		bigChunk.mu.Lock()
+		if _, exists := bigChunk.chunks[chunkCoords]; !exists {
+			bigChunk.chunks[chunkCoords] = chunk
+		}
+		bigChunk.mu.Unlock()
+	}
+
+	// Устанавливаем метаданные напрямую в чанке
+	chunk.SetBlockMetadataLayer(LayerActive, localPos, key, value)
+}
+
+// RemoveBlock удаляет блок, заменяя его на воздух
+func (wm *WorldManager) RemoveBlock(pos vec.Vec2) Block {
+	oldBlock := wm.GetBlock(pos)
+	airBlock := Block{ID: 0, Payload: make(map[string]interface{})} // AirBlockID = 0
+	wm.SetBlock(pos, airBlock)
+	return oldBlock
+}
+
+// IsBlockLoaded проверяет, загружен ли блок в память
+func (wm *WorldManager) IsBlockLoaded(pos vec.Vec2) bool {
+	bigChunkCoords := pos.ToBigChunkCoords()
+	chunkCoords := pos.ToChunkCoords()
+
+	wm.mu.RLock()
+	bigChunk, exists := wm.bigChunks[bigChunkCoords]
+	wm.mu.RUnlock()
+
+	if !exists {
+		return false
+	}
+
+	bigChunk.mu.RLock()
+	_, chunkExists := bigChunk.chunks[chunkCoords]
+	bigChunk.mu.RUnlock()
+
+	return chunkExists
+}
+
+// ===== Методы для работы со Storage через адаптер =====
+
+// InitStorageAdapter инициализирует StorageAdapter
+func (wm *WorldManager) InitStorageAdapter(storageProvider storage_interface.StorageProvider) error {
+	// Устанавливаем функции для работы с хранилищем
+	wm.SetStorageFunctions(
+		storageProvider.SaveEntities,
+		func(coords vec.Vec2) (interface{}, error) {
+			return storageProvider.LoadEntities(coords)
+		},
+		func(entities map[uint64]interface{}, data interface{}) {
+			if entitiesData, ok := data.(*storage_interface.EntitiesData); ok {
+				storageProvider.ApplyEntitiesToBigChunk(entities, entitiesData)
+			}
+		},
+	)
+
+	return nil
+}
+
+// LoadBigChunkFromStorage загружает BigChunk из хранилища
+func (wm *WorldManager) LoadBigChunkFromStorage(coords vec.Vec2) error {
+	if wm.loadEntitiesFunc == nil {
+		return nil // Хранилище не инициализировано
+	}
+
+	// Загружаем данные сущностей
+	data, err := wm.loadEntitiesFunc(coords)
+	if err != nil {
+		log.Printf("Ошибка загрузки сущностей для BigChunk %v: %v", coords, err)
+		return err
+	}
+
+	// Получаем BigChunk
+	wm.mu.RLock()
+	bigChunk, exists := wm.bigChunks[coords]
+	wm.mu.RUnlock()
+
+	if !exists {
+		wm.mu.Lock()
+		bigChunk, exists = wm.bigChunks[coords]
+		if !exists {
+			bigChunk = wm.createBigChunk(coords)
+		}
+		wm.mu.Unlock()
+	}
+
+	// Применяем загруженные данные
+	if wm.applyEntitiesFunc != nil && data != nil {
+		bigChunk.mu.Lock()
+		wm.applyEntitiesFunc(bigChunk.entities, data)
+		bigChunk.mu.Unlock()
+	}
+
+	return nil
 }

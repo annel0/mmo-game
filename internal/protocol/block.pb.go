@@ -26,8 +26,9 @@ type BlockUpdateRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Position      *Vec2                  `protobuf:"bytes,1,opt,name=position,proto3" json:"position,omitempty"`
 	BlockId       uint32                 `protobuf:"varint,2,opt,name=block_id,json=blockId,proto3" json:"block_id,omitempty"`
-	Metadata      *JsonMetadata          `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"` // JSON метаданные для блока
-	Action        string                 `protobuf:"bytes,4,opt,name=action,proto3" json:"action,omitempty"`     // Тип действия с блоком (mine, use, place, и т.д.)
+	Layer         BlockLayer             `protobuf:"varint,3,opt,name=layer,proto3,enum=protocol.BlockLayer" json:"layer,omitempty"`
+	Metadata      *JsonMetadata          `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"` // JSON метаданные для блока
+	Action        string                 `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`     // Тип действия с блоком (mine, use, place, и т.д.)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -76,6 +77,13 @@ func (x *BlockUpdateRequest) GetBlockId() uint32 {
 	return 0
 }
 
+func (x *BlockUpdateRequest) GetLayer() BlockLayer {
+	if x != nil {
+		return x.Layer
+	}
+	return BlockLayer_FLOOR
+}
+
 func (x *BlockUpdateRequest) GetMetadata() *JsonMetadata {
 	if x != nil {
 		return x.Metadata
@@ -97,8 +105,9 @@ type BlockUpdateResponse struct {
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	BlockId       uint32                 `protobuf:"varint,3,opt,name=block_id,json=blockId,proto3" json:"block_id,omitempty"`
 	Position      *Vec2                  `protobuf:"bytes,4,opt,name=position,proto3" json:"position,omitempty"`
-	Metadata      *JsonMetadata          `protobuf:"bytes,5,opt,name=metadata,proto3" json:"metadata,omitempty"` // JSON метаданные для блока
-	Effects       []string               `protobuf:"bytes,6,rep,name=effects,proto3" json:"effects,omitempty"`   // Эффекты, связанные с обновлением блока
+	Layer         BlockLayer             `protobuf:"varint,5,opt,name=layer,proto3,enum=protocol.BlockLayer" json:"layer,omitempty"`
+	Metadata      *JsonMetadata          `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"` // JSON метаданные для блока
+	Effects       []string               `protobuf:"bytes,7,rep,name=effects,proto3" json:"effects,omitempty"`   // Эффекты, связанные с обновлением блока
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -159,6 +168,13 @@ func (x *BlockUpdateResponse) GetPosition() *Vec2 {
 		return x.Position
 	}
 	return nil
+}
+
+func (x *BlockUpdateResponse) GetLayer() BlockLayer {
+	if x != nil {
+		return x.Layer
+	}
+	return BlockLayer_FLOOR
 }
 
 func (x *BlockUpdateResponse) GetMetadata() *JsonMetadata {
@@ -293,19 +309,21 @@ var File_block_proto protoreflect.FileDescriptor
 
 const file_block_proto_rawDesc = "" +
 	"\n" +
-	"\vblock.proto\x12\bprotocol\x1a\fcommon.proto\"\xa7\x01\n" +
+	"\vblock.proto\x12\bprotocol\x1a\fcommon.proto\"\xd3\x01\n" +
 	"\x12BlockUpdateRequest\x12*\n" +
 	"\bposition\x18\x01 \x01(\v2\x0e.protocol.Vec2R\bposition\x12\x19\n" +
-	"\bblock_id\x18\x02 \x01(\rR\ablockId\x122\n" +
-	"\bmetadata\x18\x03 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x16\n" +
-	"\x06action\x18\x04 \x01(\tR\x06action\"\xde\x01\n" +
+	"\bblock_id\x18\x02 \x01(\rR\ablockId\x12*\n" +
+	"\x05layer\x18\x03 \x01(\x0e2\x14.protocol.BlockLayerR\x05layer\x122\n" +
+	"\bmetadata\x18\x04 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x16\n" +
+	"\x06action\x18\x05 \x01(\tR\x06action\"\x8a\x02\n" +
 	"\x13BlockUpdateResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x19\n" +
 	"\bblock_id\x18\x03 \x01(\rR\ablockId\x12*\n" +
-	"\bposition\x18\x04 \x01(\v2\x0e.protocol.Vec2R\bposition\x122\n" +
-	"\bmetadata\x18\x05 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x18\n" +
-	"\aeffects\x18\x06 \x03(\tR\aeffects\"\xa0\x01\n" +
+	"\bposition\x18\x04 \x01(\v2\x0e.protocol.Vec2R\bposition\x12*\n" +
+	"\x05layer\x18\x05 \x01(\x0e2\x14.protocol.BlockLayerR\x05layer\x122\n" +
+	"\bmetadata\x18\x06 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x18\n" +
+	"\aeffects\x18\a \x03(\tR\aeffects\"\xa0\x01\n" +
 	"\tBlockData\x12*\n" +
 	"\bposition\x18\x01 \x01(\v2\x0e.protocol.Vec2R\bposition\x12\x19\n" +
 	"\bblock_id\x18\x02 \x01(\rR\ablockId\x122\n" +
@@ -333,21 +351,24 @@ var file_block_proto_goTypes = []any{
 	(*BlockData)(nil),           // 2: protocol.BlockData
 	(*BlockUpdateMessage)(nil),  // 3: protocol.BlockUpdateMessage
 	(*Vec2)(nil),                // 4: protocol.Vec2
-	(*JsonMetadata)(nil),        // 5: protocol.JsonMetadata
+	(BlockLayer)(0),             // 5: protocol.BlockLayer
+	(*JsonMetadata)(nil),        // 6: protocol.JsonMetadata
 }
 var file_block_proto_depIdxs = []int32{
 	4, // 0: protocol.BlockUpdateRequest.position:type_name -> protocol.Vec2
-	5, // 1: protocol.BlockUpdateRequest.metadata:type_name -> protocol.JsonMetadata
-	4, // 2: protocol.BlockUpdateResponse.position:type_name -> protocol.Vec2
-	5, // 3: protocol.BlockUpdateResponse.metadata:type_name -> protocol.JsonMetadata
-	4, // 4: protocol.BlockData.position:type_name -> protocol.Vec2
-	5, // 5: protocol.BlockData.metadata:type_name -> protocol.JsonMetadata
-	2, // 6: protocol.BlockUpdateMessage.blocks:type_name -> protocol.BlockData
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	5, // 1: protocol.BlockUpdateRequest.layer:type_name -> protocol.BlockLayer
+	6, // 2: protocol.BlockUpdateRequest.metadata:type_name -> protocol.JsonMetadata
+	4, // 3: protocol.BlockUpdateResponse.position:type_name -> protocol.Vec2
+	5, // 4: protocol.BlockUpdateResponse.layer:type_name -> protocol.BlockLayer
+	6, // 5: protocol.BlockUpdateResponse.metadata:type_name -> protocol.JsonMetadata
+	4, // 6: protocol.BlockData.position:type_name -> protocol.Vec2
+	6, // 7: protocol.BlockData.metadata:type_name -> protocol.JsonMetadata
+	2, // 8: protocol.BlockUpdateMessage.blocks:type_name -> protocol.BlockData
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_block_proto_init() }

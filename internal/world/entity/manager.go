@@ -354,11 +354,19 @@ func calculateDirection(moveDir vec.Vec2Float) int {
 	*/
 }
 
-// isPassableBlock проверяет, можно ли пройти через блок
+// isPassableBlock проверяет, можно ли пройти сквозь блок.
+// Предпочтительно использует метод IsPassable() у поведения блока,
+// иначе по умолчанию проходимым считается только воздух.
 func isPassableBlock(blockID block.BlockID) bool {
-	// Здесь должна быть логика, определяющая проходимость блоков
-	// Пример: воздух (0) проходим, остальные блоки - нет
-	return blockID == 0
+	behavior, exists := block.Get(blockID)
+	if exists {
+		if p, ok := behavior.(interface{ IsPassable() bool }); ok {
+			return p.IsPassable()
+		}
+	}
+
+	// Фоллбэк на воздух
+	return blockID == block.AirBlockID
 }
 
 // entitiesCollide проверяет, сталкиваются ли две сущности
@@ -412,4 +420,15 @@ func (em *EntityManager) GetStats() map[string]interface{} {
 	stats["registered_behaviors"] = len(em.behaviors)
 
 	return stats
+}
+
+// AddEntity добавляет уже созданную сущность в менеджер (используется, когда ID выбирается внешним кодом).
+// Если сущность с таким ID уже существует, она будет перезаписана.
+func (em *EntityManager) AddEntity(entity *Entity) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	em.entities[entity.ID] = entity
+	if entity.ID >= em.nextEntityID {
+		em.nextEntityID = entity.ID + 1
+	}
 }

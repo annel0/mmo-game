@@ -25,12 +25,13 @@ type BlockID uint16
 // Константы ID блоков
 const (
 	// Базовые типы блоков
-	AirBlockID   BlockID = iota // 0
-	StoneBlockID                // 1
-	GrassBlockID                // 2
-	WaterBlockID                // 3
-	SandBlockID                 // 4
-	DirtBlockID                 // 5 - Новый блок земли/грязи
+	AirBlockID       BlockID = iota // 0
+	StoneBlockID                    // 1
+	GrassBlockID                    // 2
+	WaterBlockID                    // 3
+	SandBlockID                     // 4
+	DirtBlockID                     // 5 - Новый блок земли/грязи
+	DeepWaterBlockID                // 6 - Глубинная вода (статичная)
 
 	// Для возможности расширения, оставляем большие промежутки между категориями
 

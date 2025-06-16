@@ -175,6 +175,14 @@ func (s *TCPServerPB) removeConnection(connID string) {
 		remaining := atomic.LoadInt32(&s.totalConnections)
 		logging.Info("TCP соединение закрыто: %s (осталось: %d)", connID, remaining)
 		log.Printf("TCP соединение закрыто: %s (осталось: %d)", connID, remaining)
+
+		// Оповещаем игровой обработчик о разрыве соединения, чтобы очистить карты playerEntities и т.д.
+		// Вызываем вне блокировки s.mu, чтобы избежать возможных дедлоков.
+		go func(handler *GameHandlerPB, id string) {
+			if handler != nil {
+				handler.OnClientDisconnect(id)
+			}
+		}(s.gameHandler, connID)
 	}
 }
 

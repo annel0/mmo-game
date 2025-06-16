@@ -22,7 +22,7 @@ message AuthResponse {
   bool success = 1;
   string message = 2;
   uint64 player_id = 3;
-  string token = 4;                     // Старый токен (для совместимости)
+  string token = 4;                     // Токен аутентификации
   string world_name = 5;
   
   // === НОВЫЕ ПОЛЯ ===

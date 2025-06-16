@@ -50,8 +50,8 @@ func (ga *GameAuthenticator) AuthenticateUser(username, password string) (*AuthR
 		}, nil
 	}
 
-	// Generate JWT token
-	token, err := ga.generateJWT(user.ID, user.Username)
+	// Генерируем JWT токен с помощью общего метода, чтобы Claims совпадали с ValidateJWT
+	token, err := GenerateJWT(user)
 	if err != nil {
 		return &AuthResult{
 			Success: false,

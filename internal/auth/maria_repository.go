@@ -233,3 +233,49 @@ func (m *MariaUserRepo) GetUserStats() (map[string]interface{}, error) {
 func (m *MariaUserRepo) Close() error {
 	return m.db.Close()
 }
+
+// === МЕТОДЫ ДЛЯ СООТВЕТСТВИЯ ИНТЕРФЕЙСУ UserRepository ===
+
+// GetUserByID получает пользователя по ID
+func (m *MariaUserRepo) GetUserByID(id uint64) (*User, error) {
+	query := `SELECT id, username, password_hash, is_admin, created_at, last_login 
+			  FROM users WHERE id = ?`
+
+	var user User
+	err := m.db.QueryRow(query, id).Scan(
+		&user.ID,
+		&user.Username,
+		&user.PasswordHash,
+		&user.IsAdmin,
+		&user.CreatedAt,
+		&user.LastLogin,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ошибка при получении пользователя по ID: %w", err)
+	}
+
+	return &user, nil
+}
+
+// ValidateCredentials проверяет учетные данные пользователя
+func (m *MariaUserRepo) ValidateCredentials(username, password string) (*User, error) {
+	// Получаем пользователя
+	user, err := m.GetUserByUsername(username)
+	if err != nil {
+		return nil, err
+	}
+
+	// Проверяем пароль
+	if !CheckPassword(user.PasswordHash, password) {
+		return nil, ErrUserNotFound // Возвращаем тот же тип ошибки для безопасности
+	}
+
+	// Обновляем время последнего входа
+	_ = m.UpdateUserLastLogin(user.ID)
+
+	return user, nil
+}

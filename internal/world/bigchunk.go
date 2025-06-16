@@ -13,15 +13,16 @@ import (
 
 // BigChunk представляет собой единицу симуляции, которая содержит 32x32 чанка
 type BigChunk struct {
-	coords    vec.Vec2               // Координаты BigChunk в мире
-	chunks    map[vec.Vec2]*Chunk    // Чанки, принадлежащие этому BigChunk
-	eventsIn  chan Event             // Входящие события
-	eventsOut chan<- Event           // Исходящие события (в WorldManager)
-	tickables map[vec.Vec2]struct{}  // Тикаемые блоки в этом BigChunk
-	entities  map[uint64]interface{} // Сущности в этом BigChunk (игроки, NPC)
-	world     *WorldManager          // Ссылка на WorldManager
-	mu        sync.RWMutex           // Мьютекс для безопасного доступа
-	tickID    uint64                 // Текущий номер тика для этого BigChunk
+	coords        vec.Vec2               // Координаты BigChunk в мире
+	chunks        map[vec.Vec2]*Chunk    // Чанки, принадлежащие этому BigChunk
+	eventsIn      chan Event             // Входящие события
+	eventsOut     chan<- Event           // Исходящие события (в WorldManager)
+	tickables     map[vec.Vec2]struct{}  // Постоянно тикаемые блоки в этом BigChunk
+	onceTickables map[vec.Vec2]struct{}  // Блоки для разового обновления в следующем тике
+	entities      map[uint64]interface{} // Сущности в этом BigChunk (игроки, NPC)
+	world         *WorldManager          // Ссылка на WorldManager
+	mu            sync.RWMutex           // Мьютекс для безопасного доступа
+	tickID        uint64                 // Текущий номер тика для этого BigChunk
 }
 
 // EntityData представляет данные о сущности внутри BigChunk
@@ -35,15 +36,16 @@ type EntityData struct {
 // NewBigChunk создаёт новый BigChunk с указанными координатами
 func NewBigChunk(coords vec.Vec2, world *WorldManager, eventsOut chan<- Event) *BigChunk {
 	return &BigChunk{
-		coords:    coords,
-		chunks:    make(map[vec.Vec2]*Chunk),
-		eventsIn:  make(chan Event, 1000),
-		eventsOut: eventsOut,
-		tickables: make(map[vec.Vec2]struct{}),
-		entities:  make(map[uint64]interface{}),
-		world:     world,
-		mu:        sync.RWMutex{},
-		tickID:    0,
+		coords:        coords,
+		chunks:        make(map[vec.Vec2]*Chunk),
+		eventsIn:      make(chan Event, 1000),
+		eventsOut:     eventsOut,
+		tickables:     make(map[vec.Vec2]struct{}),
+		onceTickables: make(map[vec.Vec2]struct{}),
+		entities:      make(map[uint64]interface{}),
+		world:         world,
+		mu:            sync.RWMutex{},
+		tickID:        0,
 	}
 }
 
@@ -72,17 +74,20 @@ func (bc *BigChunk) processTick() {
 	_ = bc.tickID
 	bc.mu.Unlock()
 
-	// 1. Обновление тикаемых блоков
+	// 1. Обновление постоянно тикаемых блоков
 	bc.updateBlocks()
 
-	// 2. Обновление сущностей
+	// 2. Обновление блоков для разового обновления
+	bc.updateOnceBlocks()
+
+	// 3. Обновление сущностей
 	bc.updateEntities()
 
-	// 3. Обработка отложенных событий
+	// 4. Обработка отложенных событий
 	// TODO: Реализовать при необходимости
 }
 
-// updateBlocks обновляет все тикаемые блоки в BigChunk
+// updateBlocks обновляет все постоянно тикаемые блоки в BigChunk
 func (bc *BigChunk) updateBlocks() {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
@@ -110,6 +115,47 @@ func (bc *BigChunk) updateBlocks() {
 		}
 
 		// Вызываем TickUpdate для блока
+		behavior.TickUpdate(api, pos)
+	}
+}
+
+// updateOnceBlocks обновляет все блоки, помеченные для разового обновления
+func (bc *BigChunk) updateOnceBlocks() {
+	// Копируем список блоков для обновления, чтобы избежать блокировок
+	bc.mu.Lock()
+	blocksToUpdate := make([]vec.Vec2, 0, len(bc.onceTickables))
+	for pos := range bc.onceTickables {
+		blocksToUpdate = append(blocksToUpdate, pos)
+	}
+	// Очищаем список после копирования
+	bc.onceTickables = make(map[vec.Vec2]struct{})
+	bc.mu.Unlock()
+
+	// Создаем BlockAPI для доступа к миру из блоков
+	api := bc.createBlockAPI()
+
+	// Обрабатываем каждый блок
+	for _, pos := range blocksToUpdate {
+		chunkCoords := pos.ToChunkCoords()
+
+		bc.mu.RLock()
+		chunk, exists := bc.chunks[chunkCoords]
+		bc.mu.RUnlock()
+
+		if !exists {
+			continue
+		}
+
+		localPos := pos.LocalInChunk()
+		blockID := chunk.GetBlock(localPos)
+		block := Block{ID: blockID, Payload: chunk.GetBlockMetadata(localPos)}
+
+		behavior, exists := block.GetBehavior()
+		if !exists {
+			continue
+		}
+
+		// Вызываем TickUpdate для блока (даже если NeedsTick() == false)
 		behavior.TickUpdate(api, pos)
 	}
 }
@@ -410,19 +456,12 @@ func (bc *BigChunk) setBlock(pos vec.Vec2, block Block) {
 	}
 
 	// Устанавливаем блок и его метаданные
-	chunk.Blocks[localPos.X][localPos.Y] = block.ID
+	chunk.SetBlock(localPos, block.ID)
 
 	// Если есть метаданные - устанавливаем их
 	if len(block.Payload) > 0 {
 		chunk.SetBlockMetadataMap(localPos, block.Payload)
 	}
-
-	// Отмечаем блок как измененный
-	if chunk.Changes == nil {
-		chunk.Changes = make(map[vec.Vec2]struct{})
-	}
-	chunk.Changes[localPos] = struct{}{}
-	chunk.ChangeCounter++
 
 	// Обновляем список тикаемых блоков
 	if block.NeedsTick() {
@@ -551,4 +590,12 @@ func (bc *BigChunk) moveEntity(event EntityEvent) {
 func (bc *BigChunk) entityInteract(event EntityEvent) {
 	// Здесь будет логика взаимодействия сущностей
 	// Например, диалоги, торговля, атака и т.д.
+}
+
+// AddOnceTickable добавляет блок в список для разового обновления
+func (bc *BigChunk) AddOnceTickable(pos vec.Vec2) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	bc.onceTickables[pos] = struct{}{}
 }
