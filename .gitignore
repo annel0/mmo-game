@@ -49,7 +49,7 @@ tests/logs/*.log
 .cache/
 
 # Generated Protocol Buffers
-**/*.pb.go
+# **/*.pb.go
 !internal/protocol/*.pb.go # keep generated files in canonical location
 
 # Large binary files (keep only recent)
