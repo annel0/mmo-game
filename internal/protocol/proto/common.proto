@@ -42,6 +42,13 @@ enum BlockLayer {
   CEILING = 2;
 }
 
+// Alias for backward compatibility
+enum Layer {
+  LAYER_FLOOR = 0;
+  LAYER_ACTIVE = 1;
+  LAYER_CEILING = 2;
+}
+
 // Общая структура сообщения, которая содержит тип и сериализованные данные
 message GameMessage {
   MessageType type = 1;

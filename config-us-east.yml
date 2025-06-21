@@ -1,0 +1,16 @@
+eventbus:
+  url: "nats://127.0.0.1:4222"
+  stream: "GLOBAL_EVENTS"
+  retention_hours: 24
+
+sync:
+  region_id: "us-east-1"
+  batch_size: 100
+  flush_every_seconds: 3
+  use_gzip_compression: true
+
+server:
+  tcp_port: 7779
+  udp_port: 7780
+  rest_port: 8089
+  metrics_port: 2113 

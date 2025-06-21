@@ -62,7 +62,7 @@ message BlockChange {
 }
 
 // Событие изменения блока (для broadcast всем игрокам)
-message BlockEvent {
+message BlockEventMessage {
   Vec2 world_pos = 1;                         // Глобальные координаты блока
   uint32 block_id = 2;                        // ID блока
   JsonMetadata metadata = 3;                   // Метаданные

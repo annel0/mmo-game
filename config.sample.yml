@@ -1,0 +1,19 @@
+# Примерная конфигурация MMO Game Server
+# Скопируйте в config.yml и настройте под ваши требования
+
+eventbus:
+  url: "nats://127.0.0.1:4222"
+  stream: "GLOBAL_EVENTS"
+  retention_hours: 24
+
+sync:
+  region_id: "eu-west-1"
+  batch_size: 100
+  flush_every_seconds: 3
+  use_gzip_compression: true
+
+server:
+  tcp_port: 7777        # Игровой TCP порт
+  udp_port: 7778        # Игровой UDP порт
+  rest_port: 8088       # REST API порт
+  metrics_port: 2112    # Prometheus метрики 

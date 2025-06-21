@@ -15,7 +15,7 @@ enum ChatType {
 }
 
 // Запрос на отправку сообщения чата
-message ChatRequest {
+message ChatMessage {
   ChatType type = 1;
   string message = 2;
   optional uint64 target_id = 3; // Для личных сообщений
@@ -23,7 +23,7 @@ message ChatRequest {
 }
 
 // Сообщение чата, отправляемое сервером
-message ChatBroadcast {
+message ChatBroadcastMessage {
   ChatType type = 1;
   string message = 2;
   uint64 sender_id = 3;

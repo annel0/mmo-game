@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package events;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol/events";
+
+import "google/protobuf/timestamp.proto";
+import "internal/protocol/proto/common.proto";
+
+// Координаты чанка
+message ChunkCoords {
+  int32 x = 1;
+  int32 y = 2;
+}
+
+// Координаты блока
+message BlockCoords {
+  int32 x = 1;
+  int32 y = 2;
+  int32 z = 3;
+}
+
+// Версия схемы событий для совместимости
+message EventSchema {
+  int32 version = 1;
+  string description = 2;
+}
+
+// Обёртка для всех событий
+message EventEnvelope {
+  string event_id = 1;
+  string event_type = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  string region_id = 4;
+  string source_node = 5;
+  int32 schema_version = 6;
+  
+  oneof event {
+    WorldEvent world_event = 10;
+    BlockEvent block_event = 11;
+    ChatEvent chat_event = 12;
+    SystemEvent system_event = 13;
+  }
+}
+
+// События мира
+message WorldEvent {
+  string world_id = 1;
+  
+  oneof world_action {
+    ChunkLoaded chunk_loaded = 10;
+    ChunkUnloaded chunk_unloaded = 11;
+    WorldStateChanged world_state_changed = 12;
+  }
+  
+  message ChunkLoaded {
+    ChunkCoords coords = 1;
+    int32 block_count = 2;
+  }
+  
+  message ChunkUnloaded {
+    ChunkCoords coords = 1;
+    string reason = 2;
+  }
+  
+  message WorldStateChanged {
+    string state = 1;
+    string previous_state = 2;
+  }
+}
+
+// События блоков
+message BlockEvent {
+  BlockCoords coords = 1;
+  string player_id = 2;
+  
+  oneof block_action {
+    BlockPlaced block_placed = 10;
+    BlockBroken block_broken = 11;
+    BlockUpdated block_updated = 12;
+  }
+  
+  message BlockPlaced {
+    string block_type = 1;
+    string layer = 2;
+    map<string, string> metadata = 3;
+  }
+  
+  message BlockBroken {
+    string block_type = 1;
+    string layer = 2;
+    bool dropped_items = 3;
+  }
+  
+  message BlockUpdated {
+    string block_type = 1;
+    string layer = 2;
+    map<string, string> old_metadata = 3;
+    map<string, string> new_metadata = 4;
+  }
+}
+
+// События чата
+message ChatEvent {
+  string player_id = 1;
+  string channel = 2;
+  
+  oneof chat_action {
+    MessageSent message_sent = 10;
+    PlayerJoined player_joined = 11;
+    PlayerLeft player_left = 12;
+  }
+  
+  message MessageSent {
+    string message = 1;
+    string message_type = 2; // public, private, system
+  }
+  
+  message PlayerJoined {
+    string player_name = 1;
+  }
+  
+  message PlayerLeft {
+    string player_name = 1;
+    string reason = 2;
+  }
+}
+
+// Системные события
+message SystemEvent {
+  string component = 1;
+  string level = 2; // info, warn, error
+  
+  oneof system_action {
+    ServiceStarted service_started = 10;
+    ServiceStopped service_stopped = 11;
+    ErrorOccurred error_occurred = 12;
+    MetricReported metric_reported = 13;
+  }
+  
+  message ServiceStarted {
+    string service_name = 1;
+    string version = 2;
+    map<string, string> config = 3;
+  }
+  
+  message ServiceStopped {
+    string service_name = 1;
+    string reason = 2;
+    int64 uptime_seconds = 3;
+  }
+  
+  message ErrorOccurred {
+    string error_message = 1;
+    string stack_trace = 2;
+    map<string, string> context = 3;
+  }
+  
+  message MetricReported {
+    string metric_name = 1;
+    double value = 2;
+    map<string, string> labels = 3;
+  }
+} 

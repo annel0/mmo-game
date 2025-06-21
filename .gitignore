@@ -34,10 +34,27 @@
 
 # Log files
 *.log
+logs/server_*.log
+logs/test_*.log
+tests/logs/*.log
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.swp
+*.swo
+
+# Cache directories
+.cache/
+cache/
 
 # Generated Protocol Buffers
 **/*.pb.go
 !internal/protocol/*.pb.go # keep generated files in canonical location
+
+# Large binary files (keep only recent)
+bin/mmo-server
 
 # Misc
 workspace
@@ -51,3 +68,10 @@ main
 protocol_analyzer
 protocol_analyzer.go
 test_client.go
+
+# Development & testing artifacts
+*.pprof
+*.prof
+debug
+debug.test
+.cursor

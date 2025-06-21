@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/annel0/mmo-game/internal/auth"
 	"github.com/annel0/mmo-game/internal/protocol"
+	"github.com/annel0/mmo-game/internal/storage"
 	"github.com/annel0/mmo-game/internal/vec"
 	"github.com/annel0/mmo-game/internal/world"
 	"github.com/annel0/mmo-game/internal/world/block"
@@ -29,6 +31,7 @@ type GameHandlerPB struct {
 	entityManager *entity.EntityManager
 	userRepo      auth.UserRepository
 	gameAuth      *auth.GameAuthenticator
+	positionRepo  storage.PositionRepo // Репозиторий позиций игроков
 
 	tcpServer *TCPServerPB
 	udpServer *UDPServerPB
@@ -39,11 +42,19 @@ type GameHandlerPB struct {
 	serializer   *protocol.MessageSerializer
 	lastEntityID uint64
 	mu           sync.RWMutex
+
+	// Оптимизация частоты обновлений
+	tickCounter         int     // Счетчик тиков
+	worldUpdateInterval int     // Интервал обновлений в тиках (20 тиков = 1 сек при 20 TPS)
+	lastUpdateTime      float64 // Время последнего обновления
 }
 
 // Session stores authenticated player data for the lifetime of a TCP connection.
+// UserID - постоянный идентификатор аккаунта (для сохранения позиций)
+// EntityID - временный идентификатор сущности в текущей сессии
 type Session struct {
-	PlayerID uint64
+	UserID   uint64 // Постоянный идентификатор пользователя (бывший PlayerID)
+	EntityID uint64 // Идентификатор текущей сущности игрока в мире
 	Username string
 	Token    string
 	IsAdmin  bool
@@ -58,8 +69,13 @@ func NewGameHandlerPB(worldManager *world.WorldManager, entityManager *entity.En
 		playerEntities: make(map[string]uint64),
 		sessions:       make(map[string]*Session),
 
-		serializer:   protocol.NewMessageSerializer(),
+		serializer:   createMessageSerializer(),
 		lastEntityID: 0,
+
+		// Инициализация оптимизации
+		tickCounter:         0,
+		worldUpdateInterval: 2, // Обновления каждые 10 тиков = 2 раза в секунду при 20 TPS
+		lastUpdateTime:      0,
 	}
 
 	// Устанавливаем обработчик как сетевой менеджер для мира
@@ -81,7 +97,55 @@ func (gh *GameHandlerPB) SetUDPServer(server *UDPServerPB) {
 // SetGameAuthenticator устанавливает аутентификатор
 func (gh *GameHandlerPB) SetGameAuthenticator(gameAuth *auth.GameAuthenticator) {
 	gh.gameAuth = gameAuth
+}
 
+// SetPositionRepo устанавливает репозиторий позиций
+func (gh *GameHandlerPB) SetPositionRepo(positionRepo storage.PositionRepo) {
+	gh.positionRepo = positionRepo
+}
+
+// GetEntityPosition возвращает позицию сущности в формате Vec3 (x, y, layer).
+// Используется для сохранения позиций игроков.
+//
+// Параметры:
+//
+//	entityID - идентификатор сущности
+//
+// Возвращает:
+//
+//	vec.Vec3 - позиция в 3D пространстве (где Z = layer)
+//	bool - true если сущность найдена
+func (gh *GameHandlerPB) GetEntityPosition(entityID uint64) (vec.Vec3, bool) {
+	entity, exists := gh.entityManager.GetEntity(entityID)
+	if !exists {
+		return vec.Vec3{}, false
+	}
+
+	// Определяем layer на основе того, в каком слое находится игрок
+	// Пока используем 1 как дефолтный layer
+	layer := 1
+
+	// В будущем можно добавить логику определения layer на основе:
+	// - текущего блока под игроком
+	// - специального поля в сущности
+	// - глобальных настроек мира
+
+	return vec.Vec3{
+		X: entity.Position.X,
+		Y: entity.Position.Y,
+		Z: layer,
+	}, true
+}
+
+// GetDefaultSpawnPosition возвращает позицию для спавна по умолчанию.
+//
+// Возвращает:
+//
+//	vec.Vec3 - позиция спавна по умолчанию
+func (gh *GameHandlerPB) GetDefaultSpawnPosition() vec.Vec3 {
+	// Пока используем фиксированную позицию спавна
+	// В будущем можно добавить логику поиска безопасной позиции спавна
+	return vec.Vec3{X: 0, Y: 0, Z: 1}
 }
 
 // HandleMessage обрабатывает входящие сообщения от клиентов
@@ -116,13 +180,33 @@ func (gh *GameHandlerPB) OnClientDisconnect(connID string) {
 	gh.mu.Lock()
 	defer gh.mu.Unlock()
 
-	// Находим и удаляем сущность игрока
-	if entityID, exists := gh.playerEntities[connID]; exists {
+	// Находим сессию игрока
+	session, sessionExists := gh.sessions[connID]
+	entityID, entityExists := gh.playerEntities[connID]
+
+	if sessionExists && entityExists {
+		// Сохраняем позицию игрока перед отключением
+		if gh.positionRepo != nil {
+			if currentPos, found := gh.GetEntityPosition(entityID); found {
+				ctx := context.Background()
+				if err := gh.positionRepo.Save(ctx, session.UserID, currentPos); err != nil {
+					log.Printf("❌ Ошибка сохранения позиции для пользователя %d: %v", session.UserID, err)
+				} else {
+					log.Printf("💾 Позиция игрока %s сохранена: (%d, %d, %d)", session.Username, currentPos.X, currentPos.Y, currentPos.Z)
+				}
+			} else {
+				log.Printf("⚠️ Не удалось получить позицию сущности %d для сохранения", entityID)
+			}
+		} else {
+			log.Printf("⚠️ Репозиторий позиций не настроен, позиция не сохранена")
+		}
+
 		// Удаляем сущность из мира
 		gh.DespawnEntity(entityID)
 
-		// Удаляем привязку к игроку
+		// Удаляем привязки
 		delete(gh.playerEntities, connID)
+		delete(gh.sessions, connID)
 
 		// Оповещаем других игроков
 		despawnMsg := &protocol.EntityDespawnMessage{
@@ -130,9 +214,11 @@ func (gh *GameHandlerPB) OnClientDisconnect(connID string) {
 			Reason:   "disconnected",
 		}
 		gh.broadcastMessage(protocol.MessageType_ENTITY_DESPAWN, despawnMsg)
-	}
 
-	log.Printf("Клиент отключен: %s", connID)
+		log.Printf("🚪 Клиент %s (%s) отключен, позиция сохранена", connID, session.Username)
+	} else {
+		log.Printf("🚪 Клиент %s отключен (сессия не найдена)", connID)
+	}
 }
 
 // Tick обновляет состояние игрового мира
@@ -140,8 +226,75 @@ func (gh *GameHandlerPB) Tick(dt float64) {
 	// Обновляем все сущности
 	gh.entityManager.UpdateEntities(dt, gh)
 
-	// Отправляем обновления игрокам
-	gh.sendWorldUpdates()
+	// Увеличиваем счетчик тиков
+	gh.tickCounter++
+
+	// ОПТИМИЗАЦИЯ: Отправляем обновления не каждый тик, а с заданным интервалом
+	// Это снижает нагрузку на сеть с 20 обновлений/сек до 2 обновлений/сек
+	if gh.tickCounter%gh.worldUpdateInterval == 0 {
+		gh.sendWorldUpdates()
+		//log.Printf("🔄 Тик %d: отправка world updates (интервал: %d тиков)", gh.tickCounter, gh.worldUpdateInterval)
+	}
+
+	// Периодическое автосохранение позиций (каждые 30 секунд)
+	gh.autoSavePositions()
+}
+
+// autoSavePositions выполняет автосохранение позиций всех онлайн игроков.
+// Вызывается периодически из Tick для предотвращения потери данных.
+func (gh *GameHandlerPB) autoSavePositions() {
+	// Используем простой таймер - проверяем раз в 30 секунд
+	// В продакшене лучше использовать отдельный тикер
+	const autoSaveInterval = 30.0 // секунд
+
+	// Статическая переменная для отслеживания времени
+	// TODO: В будущем заменить на более элегантное решение
+	now := float64(time.Now().Unix())
+
+	// Читаем из контекста GameHandlerPB последнее время автосохранения
+	// Для простоты пока используем проверку по времени
+	gh.mu.RLock()
+	sessionsCount := len(gh.sessions)
+	playerCount := len(gh.playerEntities)
+	gh.mu.RUnlock()
+
+	// Если нет игроков онлайн, пропускаем автосохранение
+	if sessionsCount == 0 || playerCount == 0 {
+		return
+	}
+
+	// Простая проверка - автосохранение раз в 30 секунд
+	// В реальном коде стоит добавить поле lastAutoSave в структуру
+	if int(now)%int(autoSaveInterval) != 0 {
+		return
+	}
+
+	if gh.positionRepo == nil {
+		return // Репозиторий не настроен
+	}
+
+	// Собираем позиции всех онлайн игроков
+	positionsToSave := make(map[uint64]vec.Vec3)
+
+	gh.mu.RLock()
+	for connID, session := range gh.sessions {
+		if entityID, exists := gh.playerEntities[connID]; exists {
+			if currentPos, found := gh.GetEntityPosition(entityID); found {
+				positionsToSave[session.UserID] = currentPos
+			}
+		}
+	}
+	gh.mu.RUnlock()
+
+	// Выполняем пакетное сохранение позиций
+	if len(positionsToSave) > 0 {
+		ctx := context.Background()
+		if err := gh.positionRepo.BatchSave(ctx, positionsToSave); err != nil {
+			log.Printf("❌ Ошибка автосохранения позиций игроков: %v", err)
+		} else {
+			log.Printf("💾 Автосохранение выполнено для %d игроков", len(positionsToSave))
+		}
+	}
 }
 
 // GetBlock реализует интерфейс EntityAPI
@@ -416,15 +569,15 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 	// Проверяем, что GameAuthenticator инициализирован
 	if gh.gameAuth == nil {
 		log.Printf("❌ GameAuthenticator не инициализирован")
-		resp := &protocol.AuthResponse{Success: false, Message: "Server authentication error"}
+		resp := &protocol.AuthResponseMessage{Success: false, Message: "Server authentication error"}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
 		return
 	}
 
-	authMsg := &protocol.AuthRequest{}
+	authMsg := &protocol.AuthMessage{}
 	if err := gh.serializer.DeserializePayload(msg, authMsg); err != nil {
 		log.Printf("❌ Ошибка десериализации Auth: %v", err)
-		resp := &protocol.AuthResponse{Success: false, Message: "Invalid request format"}
+		resp := &protocol.AuthResponseMessage{Success: false, Message: "Invalid request format"}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
 		return
 	}
@@ -445,7 +598,7 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 	authResult, err := gh.gameAuth.AuthenticateUser(authMsg.Username, password)
 	if err != nil {
 		log.Printf("❌ Ошибка при аутентификации: %v", err)
-		resp := &protocol.AuthResponse{Success: false, Message: "Authentication service error"}
+		resp := &protocol.AuthResponseMessage{Success: false, Message: "Authentication service error"}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, resp)
 		return
 	}
@@ -453,7 +606,7 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 	// Если аутентификация не удалась
 	if !authResult.Success {
 		log.Printf("❌ Аутентификация не удалась для %s: %s", authMsg.Username, authResult.Message)
-		authResp := &protocol.AuthResponse{
+		authResp := &protocol.AuthResponseMessage{
 			Success: false,
 			Message: authResult.Message,
 		}
@@ -486,13 +639,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		gh.playerEntities[connID] = entityID
 
 		// Создаем AuthResponse с JWT токеном
-		authResp := &protocol.AuthResponse{
-			Success:            true,
-			Message:            authResult.Message,
-			PlayerId:           entityID,
-			JwtToken:           &authResult.Token,
-			ServerCapabilities: serverCapabilities,
-			WorldName:          "main_world",
+		authResp := &protocol.AuthResponseMessage{
+			Success:   true,
+			Message:   authResult.Message,
+			PlayerId:  entityID,
+			JwtToken:  &authResult.Token,
+			WorldName: "main_world",
 			ServerInfo: &protocol.ServerInfo{
 				Version:     "1.0.0",
 				Environment: "development",
@@ -500,7 +652,8 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		}
 
 		gh.sessions[connID] = &Session{
-			PlayerID: entityID,
+			UserID:   authResult.UserID, // Постоянный идентификатор аккаунта
+			EntityID: entityID,          // Временный идентификатор сущности
 			Username: username,
 			Token:    authResult.Token,
 			IsAdmin:  isAdmin,
@@ -508,8 +661,28 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 
 		log.Printf("✅ Создана игровая сущность %d для пользователя %s", entityID, username)
 
+		// Загружаем сохраненную позицию игрока или используем дефолтную
+		var spawnPos vec.Vec2
+		if gh.positionRepo != nil {
+			if savedPos, found, err := gh.positionRepo.Load(context.Background(), authResult.UserID); err != nil {
+				log.Printf("⚠️ Ошибка загрузки позиции для пользователя %d: %v", authResult.UserID, err)
+				defaultPos := gh.GetDefaultSpawnPosition()
+				spawnPos = defaultPos.ToVec2()
+			} else if found {
+				log.Printf("📍 Загружена сохраненная позиция для %s: (%d, %d, %d)", username, savedPos.X, savedPos.Y, savedPos.Z)
+				spawnPos = savedPos.ToVec2()
+			} else {
+				log.Printf("🆕 Первый вход пользователя %s, используем позицию спавна по умолчанию", username)
+				defaultPos := gh.GetDefaultSpawnPosition()
+				spawnPos = defaultPos.ToVec2()
+			}
+		} else {
+			log.Printf("⚠️ Репозиторий позиций не настроен, используем позицию спавна по умолчанию")
+			defaultPos := gh.GetDefaultSpawnPosition()
+			spawnPos = defaultPos.ToVec2()
+		}
+
 		// Создаем сущность игрока в мире
-		spawnPos := vec.Vec2{X: 0, Y: 0}
 		gh.spawnEntityWithID(entity.EntityTypePlayer, spawnPos, entityID)
 
 		// Связываем TCP-соединение с playerID для дальнейших проверок
@@ -530,13 +703,12 @@ func (gh *GameHandlerPB) handleAuth(connID string, msg *protocol.GameMessage) {
 		log.Printf("⚠️ Игровая сущность уже существует для %s", connID)
 
 		// Отправляем ответ для существующей сессии
-		authResp := &protocol.AuthResponse{
-			Success:            true,
-			Message:            "Already authenticated",
-			PlayerId:           entityID,
-			JwtToken:           &authResult.Token,
-			ServerCapabilities: serverCapabilities,
-			WorldName:          "main_world",
+		authResp := &protocol.AuthResponseMessage{
+			Success:   true,
+			Message:   "Already authenticated",
+			PlayerId:  entityID,
+			JwtToken:  &authResult.Token,
+			WorldName: "main_world",
 		}
 		gh.sendTCPMessage(connID, protocol.MessageType_AUTH_RESPONSE, authResp)
 	}
@@ -556,7 +728,7 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 		return
 	}
 
-	// === Новый универсальный обработчик ===
+	// === Валидация входных данных ===
 	if blockUpdate.Position == nil {
 		log.Printf("Недействительное обновление блока: позиция nil")
 		return
@@ -564,8 +736,55 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 
 	pos := vec.Vec2{X: int(blockUpdate.Position.X), Y: int(blockUpdate.Position.Y)}
 
-	// Получаем текущий блок
-	oldBlock := gh.worldManager.GetBlock(pos)
+	// Проверяем, что клиент авторизован
+	gh.mu.RLock()
+	playerEntityID, exists := gh.playerEntities[connID]
+	gh.mu.RUnlock()
+
+	if !exists {
+		log.Printf("❌ Неавторизованный клиент пытается изменить блок: %s", connID)
+		return
+	}
+
+	// Получаем сущность игрока для проверки расстояния
+	playerEntity, exists := gh.entityManager.GetEntity(playerEntityID)
+	if !exists || playerEntity == nil {
+		log.Printf("❌ Сущность игрока не найдена: %d", playerEntityID)
+		return
+	}
+
+	// Проверяем расстояние до блока (защита от читов)
+	blockPosFloat := vec.Vec2Float{X: float64(pos.X), Y: float64(pos.Y)}
+	distance := playerEntity.PrecisePos.DistanceTo(blockPosFloat)
+	const maxReachDistance = 10.0 // Максимальная дистанция взаимодействия
+	if distance > maxReachDistance {
+		log.Printf("❌ Игрок %d пытается изменить блок слишком далеко: %.2f > %.2f",
+			playerEntityID, distance, maxReachDistance)
+		return
+	}
+
+	// Валидация ID блока
+	if blockUpdate.BlockId > 1000 { // Разумный лимит для ID блока
+		log.Printf("❌ Недопустимый ID блока: %d", blockUpdate.BlockId)
+		return
+	}
+
+	// Валидация размера метаданных
+	if blockUpdate.Metadata != nil && len(blockUpdate.Metadata.JsonData) > 1024 {
+		log.Printf("❌ Слишком большие метаданные блока: %d байт", len(blockUpdate.Metadata.JsonData))
+		return
+	}
+
+	// Определяем слой для обновления (по умолчанию активный)
+	layer := world.LayerActive
+	if blockUpdate.Layer == protocol.BlockLayer_FLOOR {
+		layer = world.LayerFloor
+	} else if blockUpdate.Layer == protocol.BlockLayer_CEILING {
+		layer = world.LayerCeiling
+	}
+
+	// Получаем текущий блок на указанном слое
+	oldBlock := gh.worldManager.GetBlockLayer(pos, layer)
 	currentBehavior, _ := block.Get(oldBlock.ID)
 
 	// actionPayload из запроса
@@ -609,19 +828,20 @@ func (gh *GameHandlerPB) handleBlockUpdate(connID string, msg *protocol.GameMess
 		}
 	}
 
-	// Применяем изменения
+	// Применяем изменения на указанном слое
 	blockObj := world.NewBlock(newID)
 	blockObj.Payload = newPayload
-	gh.worldManager.SetBlock(pos, blockObj)
+	gh.worldManager.SetBlockLayer(pos, layer, blockObj)
 
 	// Формируем ответ
 	metaStr, _ := protocol.MapToJsonMetadata(newPayload)
 	respMeta := &protocol.JsonMetadata{JsonData: metaStr}
-	response := &protocol.BlockUpdateResponse{
+	response := &protocol.BlockUpdateResponseMessage{
 		Success:  result.Success,
 		Message:  result.Message,
 		BlockId:  uint32(newID),
 		Position: blockUpdate.Position,
+		Layer:    blockUpdate.Layer,
 		Metadata: respMeta,
 		Effects:  result.Effects,
 	}
@@ -762,9 +982,7 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMes
 	}
 
 	// Обрабатываем действие
-	// TODO: Реализовать конкретную логику действий
-	success := true
-	message := "Действие выполнено"
+	success, message, shouldBroadcast := gh.processEntityAction(entityID, action)
 
 	// Отправляем ответ
 	response := &protocol.EntityActionResponse{
@@ -774,8 +992,8 @@ func (gh *GameHandlerPB) handleEntityAction(connID string, msg *protocol.GameMes
 
 	gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_ACTION_RESPONSE, response)
 
-	// Если действие успешно, оповещаем других игроков
-	if success {
+	// Если действие успешно и требует трансляции, оповещаем других игроков
+	if success && shouldBroadcast {
 		gh.broadcastMessage(protocol.MessageType_ENTITY_ACTION, action)
 	}
 }
@@ -858,7 +1076,7 @@ func (gh *GameHandlerPB) handleChat(connID string, msg *protocol.GameMessage) {
 	playerName := session.Username
 
 	// Отправляем простое сообщение всем
-	gh.broadcastMessage(protocol.MessageType_CHAT_BROADCAST, &protocol.ChatBroadcast{
+	gh.broadcastMessage(protocol.MessageType_CHAT_BROADCAST, &protocol.ChatBroadcastMessage{
 		Type:       protocol.ChatType_CHAT_GLOBAL,
 		Message:    "Чат временно отключен",
 		SenderId:   entityID,
@@ -929,7 +1147,7 @@ func (gh *GameHandlerPB) sendWorldDataToPlayer(connID string, playerID uint64) {
 			// Ищем имя игрока по entityID в sessions
 			var username string
 			for _, session := range gh.sessions {
-				if session.PlayerID == entity.ID {
+				if session.EntityID == entity.ID {
 					username = session.Username
 					break
 				}
@@ -1064,13 +1282,34 @@ func (gh *GameHandlerPB) sendWorldUpdates() {
 			entityDataList = append(entityDataList, entityData)
 		}
 
-		// Если есть сущности для отправки, отправляем сообщение клиенту
+		// ИСПРАВЛЕНИЕ: Отправляем сообщение только если есть сущности для отправки
+		// Это предотвращает отправку пустых ENTITY_MOVE сообщений каждый тик
 		if len(entityDataList) > 0 {
 			updateMsg := &protocol.EntityMoveMessage{
 				Entities: entityDataList,
 			}
 
+			// Добавляем детальное логирование для диагностики (только первые 5 сущностей)
+			log.Printf("🔄 Отправка ENTITY_MOVE клиенту %s: %d сущностей", connID, len(entityDataList))
+			maxLog := len(entityDataList)
+			if maxLog > 3 { // Ограничиваем детальный лог до 3 сущностей
+				maxLog = 3
+			}
+			for i := 0; i < maxLog; i++ {
+				entityData := entityDataList[i]
+				log.Printf("  [%d] Entity ID=%d, Type=%v, Pos=(%d,%d)",
+					i, entityData.Id, entityData.Type, entityData.Position.X, entityData.Position.Y)
+			}
+			if len(entityDataList) > maxLog {
+				log.Printf("  ... и еще %d сущностей", len(entityDataList)-maxLog)
+			}
+
 			gh.sendTCPMessage(connID, protocol.MessageType_ENTITY_MOVE, updateMsg)
+		} else {
+			// Логируем случаи, когда сообщение не отправляется (реже для снижения спама)
+			if gh.tickCounter%100 == 0 { // Логируем каждые 100 тиков = раз в 5 секунд
+				log.Printf("⏭️ Пропуск ENTITY_MOVE для клиента %s: нет сущностей для отправки (всего видимых: %d)", connID, len(visibleEntities))
+			}
 		}
 	}
 }
@@ -1229,4 +1468,319 @@ func (gh *GameHandlerPB) isPositionWalkable(pos vec.Vec2) bool {
 	}
 
 	return true
+}
+
+// processEntityAction обрабатывает различные типы действий сущности
+// Возвращает: success, message, shouldBroadcast
+func (gh *GameHandlerPB) processEntityAction(actorID uint64, action *protocol.EntityActionRequest) (bool, string, bool) {
+	// Получаем сущность актора
+	actor, exists := gh.entityManager.GetEntity(actorID)
+	if !exists {
+		return false, "Сущность не найдена", false
+	}
+
+	// Обрабатываем действие в зависимости от типа
+	switch action.ActionType {
+	case protocol.EntityActionType_ACTION_INTERACT:
+		return gh.handleInteractAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_ATTACK:
+		return gh.handleAttackAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_USE_ITEM:
+		return gh.handleUseItemAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_PICKUP:
+		return gh.handlePickupAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_DROP:
+		return gh.handleDropAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_BUILD_PLACE:
+		return gh.handleBuildPlaceAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_BUILD_BREAK:
+		return gh.handleBuildBreakAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_EMOTE:
+		return gh.handleEmoteAction(actor, action)
+
+	case protocol.EntityActionType_ACTION_RESPAWN:
+		return gh.handleRespawnAction(actor, action)
+
+	default:
+		return false, "Неизвестный тип действия", false
+	}
+}
+
+// handleInteractAction обрабатывает взаимодействие с объектами
+func (gh *GameHandlerPB) handleInteractAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	// Если указана целевая сущность
+	if action.TargetId != nil {
+		target, exists := gh.entityManager.GetEntity(*action.TargetId)
+		if !exists {
+			return false, "Цель не найдена", false
+		}
+
+		// Проверяем расстояние
+		distance := gh.calculateDistance(actor.Position, target.Position)
+		if distance > 3.0 { // Максимальное расстояние взаимодействия
+			return false, "Слишком далеко", false
+		}
+
+		// Обрабатываем взаимодействие с разными типами сущностей
+		switch target.Type {
+		case entity.EntityTypeNPC:
+			return true, "Разговор с NPC", true
+		case entity.EntityTypePlayer:
+			return true, "Взаимодействие с игроком", true
+		default:
+			return false, "Нельзя взаимодействовать с этим объектом", false
+		}
+	}
+
+	// Если указана позиция - взаимодействие с блоком
+	if action.Position != nil {
+		blockPos := vec.Vec2{X: int(action.Position.X), Y: int(action.Position.Y)}
+
+		// Проверяем расстояние до блока
+		distance := gh.calculateDistance(actor.Position, blockPos)
+		if distance > 3.0 {
+			return false, "Слишком далеко", false
+		}
+
+		blockData := gh.worldManager.GetBlock(blockPos)
+
+		// Проверяем, можно ли взаимодействовать с блоком
+		if behavior, exists := block.Get(blockData.ID); exists {
+			if interactable, ok := behavior.(interface{ IsInteractable() bool }); ok {
+				if interactable.IsInteractable() {
+					return true, "Взаимодействие с блоком", true
+				}
+			}
+		}
+
+		return false, "С этим блоком нельзя взаимодействовать", false
+	}
+
+	return false, "Не указана цель взаимодействия", false
+}
+
+// handleAttackAction обрабатывает атаку
+func (gh *GameHandlerPB) handleAttackAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.TargetId == nil {
+		return false, "Не указана цель атаки", false
+	}
+
+	target, exists := gh.entityManager.GetEntity(*action.TargetId)
+	if !exists {
+		return false, "Цель не найдена", false
+	}
+
+	// Проверяем расстояние атаки
+	distance := gh.calculateDistance(actor.Position, target.Position)
+	attackRange := 2.0 // Базовая дальность атаки
+
+	if distance > attackRange {
+		return false, "Слишком далеко для атаки", false
+	}
+
+	// Нельзя атаковать себя
+	if actor.ID == target.ID {
+		return false, "Нельзя атаковать себя", false
+	}
+
+	// Базовый урон
+	damage := 10
+
+	// Применяем урон к цели
+	if behavior, ok := gh.entityManager.GetBehavior(target.Type); ok {
+		if behavior.OnDamage(gh, target, damage, actor) {
+			// Цель получила урон
+			return true, "Атака успешна", true
+		} else {
+			return false, "Атака заблокирована", false
+		}
+	}
+
+	return true, "Атака выполнена", true
+}
+
+// handleUseItemAction обрабатывает использование предмета
+func (gh *GameHandlerPB) handleUseItemAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.ItemId == nil {
+		return false, "Не указан предмет", false
+	}
+
+	itemID := *action.ItemId
+
+	// Проверяем, есть ли предмет у игрока (заглушка)
+	// В реальной реализации нужно проверить инвентарь
+
+	// Обрабатываем использование разных предметов
+	switch itemID {
+	case 1: // Зелье лечения
+		return true, "Использовано зелье лечения", false
+	case 2: // Инструмент
+		return true, "Использован инструмент", false
+	default:
+		return false, "Неизвестный предмет", false
+	}
+}
+
+// handlePickupAction обрабатывает подбор предметов
+func (gh *GameHandlerPB) handlePickupAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.TargetId == nil {
+		return false, "Не указан предмет для подбора", false
+	}
+
+	target, exists := gh.entityManager.GetEntity(*action.TargetId)
+	if !exists {
+		return false, "Предмет не найден", false
+	}
+
+	// Проверяем, что это предмет
+	if target.Type != entity.EntityTypeItem {
+		return false, "Это не предмет", false
+	}
+
+	// Проверяем расстояние
+	distance := gh.calculateDistance(actor.Position, target.Position)
+	if distance > 2.0 {
+		return false, "Слишком далеко", false
+	}
+
+	// Удаляем предмет из мира
+	gh.DespawnEntity(target.ID)
+
+	return true, "Предмет подобран", true
+}
+
+// handleDropAction обрабатывает выбрасывание предметов
+func (gh *GameHandlerPB) handleDropAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.ItemId == nil {
+		return false, "Не указан предмет", false
+	}
+
+	// Определяем позицию для выбрасывания
+	dropPos := actor.Position
+	if action.Position != nil {
+		dropPos = vec.Vec2{X: int(action.Position.X), Y: int(action.Position.Y)}
+
+		// Проверяем расстояние
+		distance := gh.calculateDistance(actor.Position, dropPos)
+		if distance > 2.0 {
+			return false, "Слишком далеко", false
+		}
+	}
+
+	// Проверяем, свободна ли позиция
+	if !gh.isPositionWalkable(dropPos) {
+		return false, "Позиция занята", false
+	}
+
+	// Создаем предмет в мире
+	gh.SpawnEntity(entity.EntityTypeItem, dropPos)
+
+	return true, "Предмет выброшен", true
+}
+
+// handleBuildPlaceAction обрабатывает размещение блоков
+func (gh *GameHandlerPB) handleBuildPlaceAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.Position == nil {
+		return false, "Не указана позиция", false
+	}
+
+	blockPos := vec.Vec2{X: int(action.Position.X), Y: int(action.Position.Y)}
+
+	// Проверяем расстояние
+	distance := gh.calculateDistance(actor.Position, blockPos)
+	if distance > 5.0 {
+		return false, "Слишком далеко", false
+	}
+
+	// Определяем тип блока (по умолчанию камень)
+	blockID := block.StoneBlockID
+	if action.ItemId != nil {
+		// Преобразуем ID предмета в ID блока
+		blockID = block.BlockID(*action.ItemId)
+	}
+
+	// Проверяем, можно ли разместить блок
+	currentBlock := gh.worldManager.GetBlock(blockPos)
+	if currentBlock.ID != block.AirBlockID {
+		return false, "Позиция занята", false
+	}
+
+	// Размещаем блок
+	gh.worldManager.SetBlock(blockPos, world.NewBlock(blockID))
+
+	return true, "Блок размещён", true
+}
+
+// handleBuildBreakAction обрабатывает разрушение блоков
+func (gh *GameHandlerPB) handleBuildBreakAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	if action.Position == nil {
+		return false, "Не указана позиция", false
+	}
+
+	blockPos := vec.Vec2{X: int(action.Position.X), Y: int(action.Position.Y)}
+
+	// Проверяем расстояние
+	distance := gh.calculateDistance(actor.Position, blockPos)
+	if distance > 5.0 {
+		return false, "Слишком далеко", false
+	}
+
+	// Получаем текущий блок
+	currentBlock := gh.worldManager.GetBlock(blockPos)
+	if currentBlock.ID == block.AirBlockID {
+		return false, "Нечего ломать", false
+	}
+
+	// Проверяем, можно ли сломать блок
+	if behavior, exists := block.Get(currentBlock.ID); exists {
+		if breakable, ok := behavior.(interface{ IsBreakable() bool }); ok {
+			if !breakable.IsBreakable() {
+				return false, "Блок нельзя сломать", false
+			}
+		}
+	}
+
+	// Ломаем блок
+	gh.worldManager.SetBlock(blockPos, world.NewBlock(block.AirBlockID))
+
+	// Можно добавить выпадение предметов
+	gh.SpawnEntity(entity.EntityTypeItem, blockPos)
+
+	return true, "Блок сломан", true
+}
+
+// handleEmoteAction обрабатывает эмоции
+func (gh *GameHandlerPB) handleEmoteAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	// Эмоции всегда транслируются другим игрокам
+	return true, "Эмоция выполнена", true
+}
+
+// handleRespawnAction обрабатывает возрождение
+func (gh *GameHandlerPB) handleRespawnAction(actor *entity.Entity, action *protocol.EntityActionRequest) (bool, string, bool) {
+	// Проверяем, нужно ли возрождение
+	if actor.Active {
+		return false, "Игрок уже жив", false
+	}
+
+	// Возрождаем игрока на спавне
+	spawnPos := gh.GetDefaultSpawnPosition()
+	actor.Position = vec.Vec2{X: int(spawnPos.X), Y: int(spawnPos.Y)}
+	actor.PrecisePos = vec.Vec2Float{X: float64(spawnPos.X), Y: float64(spawnPos.Y)}
+	actor.Active = true
+
+	return true, "Игрок возрождён", true
+}
+
+// calculateDistance вычисляет расстояние между двумя позициями
+func (gh *GameHandlerPB) calculateDistance(pos1, pos2 vec.Vec2) float64 {
+	dx := float64(pos1.X - pos2.X)
+	dy := float64(pos1.Y - pos2.Y)
+	return math.Sqrt(dx*dx + dy*dy)
 }

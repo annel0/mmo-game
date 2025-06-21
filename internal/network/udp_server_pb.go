@@ -54,7 +54,7 @@ func NewUDPServerPB(address string, worldManager *world.WorldManager) (*UDPServe
 		worldManager: worldManager,
 		ctx:          ctx,
 		cancel:       cancel,
-		serializer:   protocol.NewMessageSerializer(),
+		serializer:   createMessageSerializer(),
 	}, nil
 }
 

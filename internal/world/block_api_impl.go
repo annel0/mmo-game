@@ -207,8 +207,8 @@ func (api *chunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.Block
 }
 
 func (api *chunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
-	// TODO: Реализовать установку блока на конкретном слое
-	api.SetBlock(pos, id)
+	// Перенаправляем запрос в WorldManager с указанием слоя
+	api.world.SetBlockLayer(pos, BlockLayer(layer), Block{ID: id})
 }
 
 func (api *bigChunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.BlockID {
@@ -216,9 +216,26 @@ func (api *bigChunkBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.Bl
 }
 
 func (api *bigChunkBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
-	// TODO: Реализовать установку блока на конкретном слое
-	// Пока используем активный слой
-	api.SetBlock(pos, id)
+	// Создаем событие изменения блока с указанием слоя
+	event := BlockEvent{
+		EventType:   EventTypeBlockChange,
+		SourceChunk: pos.ToChunkCoords(),
+		TargetChunk: pos.ToChunkCoords(),
+		Position:    pos,
+		Block:       Block{ID: id},
+		Data: map[string]interface{}{
+			"layer": layer,
+		},
+	}
+
+	// Отправляем событие в мировой менеджер
+	select {
+	case api.bigChunk.eventsOut <- event:
+		// Успешно отправлено
+	default:
+		// Канал переполнен, пропускаем
+		log.Printf("Канал событий переполнен, событие установки блока на слое %d отброшено", layer)
+	}
 }
 
 // ScheduleUpdateOnce помечает блок для разового обновления в следующем тике

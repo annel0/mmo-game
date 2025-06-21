@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+import "common.proto";
+import "entity.proto";
+
+// Типы клиентского ввода
+enum ClientInputType {
+  INPUT_UNKNOWN = 0;
+  INPUT_MOVE = 1;
+  INPUT_INTERACT = 2;
+  INPUT_ATTACK = 3;
+  INPUT_USE_ITEM = 4;
+  INPUT_BUILD = 5;
+  INPUT_CHAT = 6;
+  INPUT_EMOTE = 7;
+}
+
+// Клиентский ввод для prediction
+message ClientInputMessage {
+  uint32 input_id = 1;          // Уникальный ID ввода
+  int64 client_timestamp = 2;   // Время ввода на клиенте (мс)
+  ClientInputType input_type = 3;
+  
+  // Данные ввода
+  optional Vec2 move_direction = 4;    // Для INPUT_MOVE
+  optional Vec2 target_position = 5;   // Позиция цели для взаимодействий
+  optional uint64 target_entity_id = 6; // ID целевой сущности
+  optional uint32 item_id = 7;         // ID предмета
+  JsonMetadata params = 8;             // Дополнительные параметры
+  
+  // Данные для prediction
+  Vec2 predicted_position = 9;   // Предсказанная позиция игрока
+  Vec2Float predicted_velocity = 10; // Предсказанная скорость
+}
+
+// Снимок состояния мира
+message WorldSnapshotMessage {
+  uint32 snapshot_id = 1;       // ID снимка
+  int64 server_timestamp = 2;   // Время снимка на сервере (мс)
+  uint32 last_processed_input = 3; // Последний обработанный input_id
+  
+  // Состояние игрока-получателя
+  EntityData player_state = 4;
+  
+  // Состояние других сущностей в видимой области
+  repeated EntityData visible_entities = 5;
+  
+  // Дельта изменений блоков (если есть)
+  repeated BlockDelta block_deltas = 6;
+  
+  // Metadata для отладки
+  optional float server_tickrate = 7; // Частота обновлений сервера
+  optional int32 entities_total = 8;  // Общее количество сущностей
+}
+
+// Дельта изменения блока для снимков
+message BlockDelta {
+  Vec2 position = 1;
+  uint32 block_id = 2;
+  uint32 layer = 3; // 0=FLOOR, 1=ACTIVE, 2=CEILING
+  bool removed = 4; // true если блок удалён
+}
+
+// Подтверждение обработки ввода
+message InputAckMessage {
+  uint32 input_id = 1;          // ID подтверждённого ввода
+  bool processed = 2;           // Успешно обработан
+  optional string error = 3;    // Ошибка обработки
+  
+  // Коррекция состояния (если нужна)
+  optional Vec2 corrected_position = 4;
+  optional Vec2Float corrected_velocity = 5;
+}
+
+// Статистика prediction для отладки
+message PredictionStatsMessage {
+  uint32 inputs_pending = 1;        // Количество ожидающих ввода
+  uint32 snapshots_buffered = 2;    // Снимков в буфере
+  float avg_prediction_error = 3;   // Средняя ошибка предсказания (пикселей)
+  float max_prediction_error = 4;   // Максимальная ошибка предсказания
+  int32 reconciliation_count = 5;   // Количество коррекций за последнюю секунду
+  int32 client_server_time_diff = 6; // Разница времени клиент-сервер (мс)
+} 

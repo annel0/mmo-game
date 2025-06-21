@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package replay;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol/replay";
+
+import "google/protobuf/timestamp.proto";
+import "internal/protocol/proto/events.proto";
+
+// Сервис для воспроизведения событий
+service ReplayService {
+  // Воспроизведение событий по фильтрам
+  rpc Replay(ReplayRequest) returns (stream events.EventEnvelope);
+  
+  // Получение статистики событий
+  rpc GetEventStats(EventStatsRequest) returns (EventStatsResponse);
+  
+  // Получение доступных типов событий
+  rpc GetEventTypes(EventTypesRequest) returns (EventTypesResponse);
+}
+
+// Запрос на воспроизведение событий
+message ReplayRequest {
+  // Временной диапазон
+  google.protobuf.Timestamp start_time = 1;
+  google.protobuf.Timestamp end_time = 2;
+  
+  // Фильтры
+  repeated string event_types = 3;     // Типы событий (WorldEvent, BlockEvent, etc.)
+  repeated string region_ids = 4;      // Регионы
+  repeated string player_ids = 5;      // Игроки
+  string world_id = 6;                 // Мир
+  
+  // Пагинация
+  int32 limit = 7;                     // Максимум событий (0 = без ограничений)
+  string cursor = 8;                   // Курсор для пагинации
+  
+  // Сортировка
+  SortOrder sort_order = 9;
+  
+  enum SortOrder {
+    SORT_ORDER_UNSPECIFIED = 0;
+    SORT_ORDER_ASC = 1;   // По возрастанию времени
+    SORT_ORDER_DESC = 2;  // По убыванию времени
+  }
+}
+
+// Запрос статистики событий
+message EventStatsRequest {
+  google.protobuf.Timestamp start_time = 1;
+  google.protobuf.Timestamp end_time = 2;
+  repeated string event_types = 3;
+  repeated string region_ids = 4;
+  
+  // Группировка
+  StatsGroupBy group_by = 5;
+  
+  enum StatsGroupBy {
+    STATS_GROUP_BY_UNSPECIFIED = 0;
+    STATS_GROUP_BY_HOUR = 1;
+    STATS_GROUP_BY_DAY = 2;
+    STATS_GROUP_BY_EVENT_TYPE = 3;
+    STATS_GROUP_BY_REGION = 4;
+  }
+}
+
+// Ответ со статистикой событий
+message EventStatsResponse {
+  repeated EventStat stats = 1;
+  int64 total_events = 2;
+  google.protobuf.Timestamp oldest_event = 3;
+  google.protobuf.Timestamp newest_event = 4;
+}
+
+// Статистика по группе событий
+message EventStat {
+  string group_key = 1;        // Ключ группировки
+  int64 event_count = 2;       // Количество событий
+  google.protobuf.Timestamp period_start = 3;
+  google.protobuf.Timestamp period_end = 4;
+  map<string, int64> event_type_counts = 5; // Детализация по типам
+}
+
+// Запрос доступных типов событий
+message EventTypesRequest {
+  google.protobuf.Timestamp start_time = 1;
+  google.protobuf.Timestamp end_time = 2;
+}
+
+// Ответ с доступными типами событий
+message EventTypesResponse {
+  repeated EventTypeInfo event_types = 1;
+}
+
+// Информация о типе события
+message EventTypeInfo {
+  string event_type = 1;       // Название типа
+  string description = 2;      // Описание
+  int64 count = 3;            // Количество событий этого типа
+  google.protobuf.Timestamp first_seen = 4;
+  google.protobuf.Timestamp last_seen = 5;
+  repeated string regions = 6; // В каких регионах встречается
+} 

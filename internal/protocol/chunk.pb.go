@@ -486,7 +486,7 @@ func (x *BlockChange) GetChangeType() string {
 }
 
 // Событие изменения блока (для broadcast всем игрокам)
-type BlockEvent struct {
+type BlockEventMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	WorldPos      *Vec2                  `protobuf:"bytes,1,opt,name=world_pos,json=worldPos,proto3" json:"world_pos,omitempty"`    // Глобальные координаты блока
 	BlockId       uint32                 `protobuf:"varint,2,opt,name=block_id,json=blockId,proto3" json:"block_id,omitempty"`      // ID блока
@@ -498,20 +498,20 @@ type BlockEvent struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BlockEvent) Reset() {
-	*x = BlockEvent{}
+func (x *BlockEventMessage) Reset() {
+	*x = BlockEventMessage{}
 	mi := &file_chunk_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BlockEvent) String() string {
+func (x *BlockEventMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BlockEvent) ProtoMessage() {}
+func (*BlockEventMessage) ProtoMessage() {}
 
-func (x *BlockEvent) ProtoReflect() protoreflect.Message {
+func (x *BlockEventMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_chunk_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -523,47 +523,47 @@ func (x *BlockEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BlockEvent.ProtoReflect.Descriptor instead.
-func (*BlockEvent) Descriptor() ([]byte, []int) {
+// Deprecated: Use BlockEventMessage.ProtoReflect.Descriptor instead.
+func (*BlockEventMessage) Descriptor() ([]byte, []int) {
 	return file_chunk_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *BlockEvent) GetWorldPos() *Vec2 {
+func (x *BlockEventMessage) GetWorldPos() *Vec2 {
 	if x != nil {
 		return x.WorldPos
 	}
 	return nil
 }
 
-func (x *BlockEvent) GetBlockId() uint32 {
+func (x *BlockEventMessage) GetBlockId() uint32 {
 	if x != nil {
 		return x.BlockId
 	}
 	return 0
 }
 
-func (x *BlockEvent) GetMetadata() *JsonMetadata {
+func (x *BlockEventMessage) GetMetadata() *JsonMetadata {
 	if x != nil {
 		return x.Metadata
 	}
 	return nil
 }
 
-func (x *BlockEvent) GetEventType() string {
+func (x *BlockEventMessage) GetEventType() string {
 	if x != nil {
 		return x.EventType
 	}
 	return ""
 }
 
-func (x *BlockEvent) GetEffects() []string {
+func (x *BlockEventMessage) GetEffects() []string {
 	if x != nil {
 		return x.Effects
 	}
 	return nil
 }
 
-func (x *BlockEvent) GetPlayerId() uint64 {
+func (x *BlockEventMessage) GetPlayerId() uint64 {
 	if x != nil {
 		return x.PlayerId
 	}
@@ -714,9 +714,8 @@ const file_chunk_proto_rawDesc = "" +
 	"\bblock_id\x18\x03 \x01(\rR\ablockId\x122\n" +
 	"\bmetadata\x18\x04 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x1f\n" +
 	"\vchange_type\x18\x05 \x01(\tR\n" +
-	"changeType\"\xde\x01\n" +
-	"\n" +
-	"BlockEvent\x12+\n" +
+	"changeType\"\xe5\x01\n" +
+	"\x11BlockEventMessage\x12+\n" +
 	"\tworld_pos\x18\x01 \x01(\v2\x0e.protocol.Vec2R\bworldPos\x12\x19\n" +
 	"\bblock_id\x18\x02 \x01(\rR\ablockId\x122\n" +
 	"\bmetadata\x18\x03 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x1d\n" +
@@ -753,7 +752,7 @@ var file_chunk_proto_goTypes = []any{
 	(*ChunkBlockMetadata)(nil),      // 5: protocol.ChunkBlockMetadata
 	(*ChunkBlockDelta)(nil),         // 6: protocol.ChunkBlockDelta
 	(*BlockChange)(nil),             // 7: protocol.BlockChange
-	(*BlockEvent)(nil),              // 8: protocol.BlockEvent
+	(*BlockEventMessage)(nil),       // 8: protocol.BlockEventMessage
 	(*SubscribeBlockUpdates)(nil),   // 9: protocol.SubscribeBlockUpdates
 	(*UnsubscribeBlockUpdates)(nil), // 10: protocol.UnsubscribeBlockUpdates
 	nil,                             // 11: protocol.ChunkBlockMetadata.BlockMetadataEntry
@@ -772,8 +771,8 @@ var file_chunk_proto_depIdxs = []int32{
 	7,  // 7: protocol.ChunkBlockDelta.block_changes:type_name -> protocol.BlockChange
 	12, // 8: protocol.BlockChange.local_pos:type_name -> protocol.Vec2
 	14, // 9: protocol.BlockChange.metadata:type_name -> protocol.JsonMetadata
-	12, // 10: protocol.BlockEvent.world_pos:type_name -> protocol.Vec2
-	14, // 11: protocol.BlockEvent.metadata:type_name -> protocol.JsonMetadata
+	12, // 10: protocol.BlockEventMessage.world_pos:type_name -> protocol.Vec2
+	14, // 11: protocol.BlockEventMessage.metadata:type_name -> protocol.JsonMetadata
 	12, // 12: protocol.SubscribeBlockUpdates.center:type_name -> protocol.Vec2
 	12, // 13: protocol.UnsubscribeBlockUpdates.center:type_name -> protocol.Vec2
 	14, // 14: protocol.ChunkBlockMetadata.BlockMetadataEntry.value:type_name -> protocol.JsonMetadata

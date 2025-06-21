@@ -5,7 +5,7 @@ package protocol;
 option go_package = "github.com/annel0/mmo-game/internal/protocol";
 
 // Запрос на аутентификацию
-message AuthRequest {
+message AuthMessage {
   string username = 1;
   optional string password = 2;
   optional string token = 3;
@@ -18,7 +18,7 @@ message AuthRequest {
 }
 
 // Ответ на аутентификацию
-message AuthResponse {
+message AuthResponseMessage {
   bool success = 1;
   string message = 2;
   uint64 player_id = 3;

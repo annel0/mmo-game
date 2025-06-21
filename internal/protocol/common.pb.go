@@ -188,6 +188,56 @@ func (BlockLayer) EnumDescriptor() ([]byte, []int) {
 	return file_common_proto_rawDescGZIP(), []int{1}
 }
 
+// Alias for backward compatibility
+type Layer int32
+
+const (
+	Layer_LAYER_FLOOR   Layer = 0
+	Layer_LAYER_ACTIVE  Layer = 1
+	Layer_LAYER_CEILING Layer = 2
+)
+
+// Enum value maps for Layer.
+var (
+	Layer_name = map[int32]string{
+		0: "LAYER_FLOOR",
+		1: "LAYER_ACTIVE",
+		2: "LAYER_CEILING",
+	}
+	Layer_value = map[string]int32{
+		"LAYER_FLOOR":   0,
+		"LAYER_ACTIVE":  1,
+		"LAYER_CEILING": 2,
+	}
+)
+
+func (x Layer) Enum() *Layer {
+	p := new(Layer)
+	*p = x
+	return p
+}
+
+func (x Layer) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Layer) Descriptor() protoreflect.EnumDescriptor {
+	return file_common_proto_enumTypes[2].Descriptor()
+}
+
+func (Layer) Type() protoreflect.EnumType {
+	return &file_common_proto_enumTypes[2]
+}
+
+func (x Layer) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Layer.Descriptor instead.
+func (Layer) EnumDescriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{2}
+}
+
 // Общая структура сообщения, которая содержит тип и сериализованные данные
 type GameMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -480,7 +530,11 @@ const file_common_proto_rawDesc = "" +
 	"\x05FLOOR\x10\x00\x12\n" +
 	"\n" +
 	"\x06ACTIVE\x10\x01\x12\v\n" +
-	"\aCEILING\x10\x02B.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
+	"\aCEILING\x10\x02*=\n" +
+	"\x05Layer\x12\x0f\n" +
+	"\vLAYER_FLOOR\x10\x00\x12\x10\n" +
+	"\fLAYER_ACTIVE\x10\x01\x12\x11\n" +
+	"\rLAYER_CEILING\x10\x02B.Z,github.com/annel0/mmo-game/internal/protocolb\x06proto3"
 
 var (
 	file_common_proto_rawDescOnce sync.Once
@@ -494,15 +548,16 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_common_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_common_proto_goTypes = []any{
 	(MessageType)(0),     // 0: protocol.MessageType
 	(BlockLayer)(0),      // 1: protocol.BlockLayer
-	(*GameMessage)(nil),  // 2: protocol.GameMessage
-	(*JsonMetadata)(nil), // 3: protocol.JsonMetadata
-	(*Vec2)(nil),         // 4: protocol.Vec2
-	(*Vec2Float)(nil),    // 5: protocol.Vec2Float
+	(Layer)(0),           // 2: protocol.Layer
+	(*GameMessage)(nil),  // 3: protocol.GameMessage
+	(*JsonMetadata)(nil), // 4: protocol.JsonMetadata
+	(*Vec2)(nil),         // 5: protocol.Vec2
+	(*Vec2Float)(nil),    // 6: protocol.Vec2Float
 }
 var file_common_proto_depIdxs = []int32{
 	0, // 0: protocol.GameMessage.type:type_name -> protocol.MessageType
@@ -524,7 +579,7 @@ func file_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,

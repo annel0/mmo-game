@@ -66,7 +66,7 @@ func NewTCPServerPB(address string, worldManager *world.WorldManager) (*TCPServe
 		worldManager:    worldManager,
 		ctx:             ctx,
 		cancel:          cancel,
-		serializer:      protocol.NewMessageSerializer(),
+		serializer:      createMessageSerializer(),
 	}, nil
 }
 
@@ -294,7 +294,7 @@ func (c *TCPConnectionPB) handleMessage(data []byte) {
 		if !c.server.gameHandler.IsSessionValid(c.id) {
 			logging.Debug("Недействительная сессия для %s, тип сообщения: %v", c.id, msg.Type)
 			log.Printf("Недействительная или отсутствующая сессия для %s", c.id)
-			errorResponse := &protocol.AuthResponse{Success: false, Message: "invalid session"}
+			errorResponse := &protocol.AuthResponseMessage{Success: false, Message: "invalid session"}
 			c.sendMessage(protocol.MessageType_AUTH_RESPONSE, errorResponse)
 			return
 		}

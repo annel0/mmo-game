@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/annel0/mmo-game/internal/auth"
+	"github.com/annel0/mmo-game/internal/storage"
 	"github.com/annel0/mmo-game/internal/world"
 	"github.com/annel0/mmo-game/internal/world/entity"
 )
@@ -151,4 +152,11 @@ func (s *GameServerPB) Stop() {
 	s.wg.Wait()
 
 	log.Println("Игровой сервер остановлен")
+}
+
+// SetPositionRepo устанавливает репозиторий позиций игроков
+func (gs *GameServerPB) SetPositionRepo(positionRepo storage.PositionRepo) {
+	if gs.gameHandler != nil {
+		gs.gameHandler.SetPositionRepo(positionRepo)
+	}
 }
