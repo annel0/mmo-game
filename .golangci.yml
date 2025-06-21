@@ -45,7 +45,6 @@ linters:
     - thelper
     - tparallel
     - typecheck
-    - unmisspell
     - wrapcheck
 
   disable:
@@ -55,7 +54,6 @@ linters:
     - goconst
     - gocognit
     - funlen
-    - maligned
     - depguard
 
 linters-settings:
@@ -66,7 +64,8 @@ linters-settings:
     local-prefixes: github.com/annel0/mmo-game
   
   govet:
-    check-shadowing: true
+    enable:
+      - shadow
     enable-all: true
   
   gocritic:
@@ -140,25 +139,23 @@ linters-settings:
     force-case-trailing-whitespace: 0
   
   gomnd:
-    settings:
-      mnd:
-        checks:
-          - argument
-          - case
-          - condition
-          - operation
-          - return
-          - assign
-        ignored-numbers:
-          - '0'
-          - '1'
-          - '2'
-          - '10'
-          - '16'
-          - '32'
-          - '64'
-          - '100'
-          - '1000'
+    checks:
+      - argument
+      - case
+      - condition
+      - operation
+      - return
+      - assign
+    ignored-numbers:
+      - '0'
+      - '1'
+      - '2'
+      - '10'
+      - '16'
+      - '32'
+      - '64'
+      - '100'
+      - '1000'
 
 issues:
   exclude-rules:
@@ -198,22 +195,6 @@ issues:
       linters:
         - godox
   
-  # Maximum issues count per one linter. Set to 0 to disable.
-  max-issues-per-linter: 50
-  
-  # Maximum count of issues with the same text. Set to 0 to disable.
-  max-same-issues: 3
-  
-  # Show only new issues
-  new: false
-
-severity:
-  default-severity: warning
-  rules:
-    - linters:
-        - gosec
-      severity: error
-    - linters:
-        - govet
-        - errcheck
-      severity: error 
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0 
