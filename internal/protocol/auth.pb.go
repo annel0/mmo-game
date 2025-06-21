@@ -22,7 +22,7 @@ const (
 )
 
 // Запрос на аутентификацию
-type AuthRequest struct {
+type AuthMessage struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Username string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
 	Password *string                `protobuf:"bytes,2,opt,name=password,proto3,oneof" json:"password,omitempty"`
@@ -36,20 +36,20 @@ type AuthRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuthRequest) Reset() {
-	*x = AuthRequest{}
+func (x *AuthMessage) Reset() {
+	*x = AuthMessage{}
 	mi := &file_auth_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthRequest) String() string {
+func (x *AuthMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthRequest) ProtoMessage() {}
+func (*AuthMessage) ProtoMessage() {}
 
-func (x *AuthRequest) ProtoReflect() protoreflect.Message {
+func (x *AuthMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_auth_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -61,54 +61,54 @@ func (x *AuthRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthRequest.ProtoReflect.Descriptor instead.
-func (*AuthRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuthMessage.ProtoReflect.Descriptor instead.
+func (*AuthMessage) Descriptor() ([]byte, []int) {
 	return file_auth_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AuthRequest) GetUsername() string {
+func (x *AuthMessage) GetUsername() string {
 	if x != nil {
 		return x.Username
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetPassword() string {
+func (x *AuthMessage) GetPassword() string {
 	if x != nil && x.Password != nil {
 		return *x.Password
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetToken() string {
+func (x *AuthMessage) GetToken() string {
 	if x != nil && x.Token != nil {
 		return *x.Token
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetJwtToken() string {
+func (x *AuthMessage) GetJwtToken() string {
 	if x != nil && x.JwtToken != nil {
 		return *x.JwtToken
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetRequestJwt() bool {
+func (x *AuthMessage) GetRequestJwt() bool {
 	if x != nil {
 		return x.RequestJwt
 	}
 	return false
 }
 
-func (x *AuthRequest) GetClientVersion() string {
+func (x *AuthMessage) GetClientVersion() string {
 	if x != nil {
 		return x.ClientVersion
 	}
 	return ""
 }
 
-func (x *AuthRequest) GetCapabilities() []string {
+func (x *AuthMessage) GetCapabilities() []string {
 	if x != nil {
 		return x.Capabilities
 	}
@@ -116,7 +116,7 @@ func (x *AuthRequest) GetCapabilities() []string {
 }
 
 // Ответ на аутентификацию
-type AuthResponse struct {
+type AuthResponseMessage struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Success   bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	Message   string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -132,20 +132,20 @@ type AuthResponse struct {
 	sizeCache          protoimpl.SizeCache
 }
 
-func (x *AuthResponse) Reset() {
-	*x = AuthResponse{}
+func (x *AuthResponseMessage) Reset() {
+	*x = AuthResponseMessage{}
 	mi := &file_auth_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuthResponse) String() string {
+func (x *AuthResponseMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuthResponse) ProtoMessage() {}
+func (*AuthResponseMessage) ProtoMessage() {}
 
-func (x *AuthResponse) ProtoReflect() protoreflect.Message {
+func (x *AuthResponseMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_auth_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -157,68 +157,68 @@ func (x *AuthResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuthResponse.ProtoReflect.Descriptor instead.
-func (*AuthResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuthResponseMessage.ProtoReflect.Descriptor instead.
+func (*AuthResponseMessage) Descriptor() ([]byte, []int) {
 	return file_auth_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AuthResponse) GetSuccess() bool {
+func (x *AuthResponseMessage) GetSuccess() bool {
 	if x != nil {
 		return x.Success
 	}
 	return false
 }
 
-func (x *AuthResponse) GetMessage() string {
+func (x *AuthResponseMessage) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *AuthResponse) GetPlayerId() uint64 {
+func (x *AuthResponseMessage) GetPlayerId() uint64 {
 	if x != nil {
 		return x.PlayerId
 	}
 	return 0
 }
 
-func (x *AuthResponse) GetToken() string {
+func (x *AuthResponseMessage) GetToken() string {
 	if x != nil {
 		return x.Token
 	}
 	return ""
 }
 
-func (x *AuthResponse) GetWorldName() string {
+func (x *AuthResponseMessage) GetWorldName() string {
 	if x != nil {
 		return x.WorldName
 	}
 	return ""
 }
 
-func (x *AuthResponse) GetJwtToken() string {
+func (x *AuthResponseMessage) GetJwtToken() string {
 	if x != nil && x.JwtToken != nil {
 		return *x.JwtToken
 	}
 	return ""
 }
 
-func (x *AuthResponse) GetJwtExpiresAt() int64 {
+func (x *AuthResponseMessage) GetJwtExpiresAt() int64 {
 	if x != nil {
 		return x.JwtExpiresAt
 	}
 	return 0
 }
 
-func (x *AuthResponse) GetServerCapabilities() []string {
+func (x *AuthResponseMessage) GetServerCapabilities() []string {
 	if x != nil {
 		return x.ServerCapabilities
 	}
 	return nil
 }
 
-func (x *AuthResponse) GetServerInfo() *ServerInfo {
+func (x *AuthResponseMessage) GetServerInfo() *ServerInfo {
 	if x != nil {
 		return x.ServerInfo
 	}
@@ -308,7 +308,7 @@ const file_auth_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
 	"auth.proto\x12\bprotocol\"\x98\x02\n" +
-	"\vAuthRequest\x12\x1a\n" +
+	"\vAuthMessage\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1f\n" +
 	"\bpassword\x18\x02 \x01(\tH\x00R\bpassword\x88\x01\x01\x12\x19\n" +
 	"\x05token\x18\x03 \x01(\tH\x01R\x05token\x88\x01\x01\x12 \n" +
@@ -320,8 +320,8 @@ const file_auth_proto_rawDesc = "" +
 	"\t_passwordB\b\n" +
 	"\x06_tokenB\f\n" +
 	"\n" +
-	"_jwt_token\"\xd2\x02\n" +
-	"\fAuthResponse\x12\x18\n" +
+	"_jwt_token\"\xd9\x02\n" +
+	"\x13AuthResponseMessage\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1b\n" +
 	"\tplayer_id\x18\x03 \x01(\x04R\bplayerId\x12\x14\n" +
@@ -357,12 +357,12 @@ func file_auth_proto_rawDescGZIP() []byte {
 
 var file_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_auth_proto_goTypes = []any{
-	(*AuthRequest)(nil),  // 0: protocol.AuthRequest
-	(*AuthResponse)(nil), // 1: protocol.AuthResponse
-	(*ServerInfo)(nil),   // 2: protocol.ServerInfo
+	(*AuthMessage)(nil),         // 0: protocol.AuthMessage
+	(*AuthResponseMessage)(nil), // 1: protocol.AuthResponseMessage
+	(*ServerInfo)(nil),          // 2: protocol.ServerInfo
 }
 var file_auth_proto_depIdxs = []int32{
-	2, // 0: protocol.AuthResponse.server_info:type_name -> protocol.ServerInfo
+	2, // 0: protocol.AuthResponseMessage.server_info:type_name -> protocol.ServerInfo
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name

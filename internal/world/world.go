@@ -2,13 +2,17 @@ package world
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/annel0/mmo-game/internal/eventbus"
 	"github.com/annel0/mmo-game/internal/storage_interface"
 	"github.com/annel0/mmo-game/internal/vec"
 	"github.com/annel0/mmo-game/internal/world/block"
+	entitypkg "github.com/annel0/mmo-game/internal/world/entity"
+	"github.com/google/uuid"
 )
 
 // BlockID представляет идентификатор блока (алиас для избежания циклического импорта)
@@ -238,6 +242,19 @@ func (wm *WorldManager) routeBlockEvent(event BlockEvent) {
 		// Отправляем уведомление об изменении блока клиентам
 		wm.networkManager.SendBlockUpdate(event.Position, event.Block)
 	}
+
+	// Публикуем в EventBus
+	if payload, err := json.Marshal(event); err == nil {
+		_ = eventbus.Publish(context.Background(), &eventbus.Envelope{
+			ID:        uuid.NewString(),
+			Timestamp: time.Now().UTC(),
+			Source:    "world_manager",
+			EventType: "BlockEvent",
+			Version:   1,
+			Priority:  5,
+			Payload:   payload,
+		})
+	}
 }
 
 // routeEntityEvent маршрутизирует событие сущности в соответствующий BigChunk
@@ -264,6 +281,19 @@ func (wm *WorldManager) routeEntityEvent(event EntityEvent) {
 	default:
 		// Канал переполнен, логируем
 		log.Printf("Переполнен канал событий для BigChunk %v, событие сущности отброшено", targetChunk.coords)
+	}
+
+	// Публикуем в EventBus
+	if payload, err := json.Marshal(event); err == nil {
+		_ = eventbus.Publish(context.Background(), &eventbus.Envelope{
+			ID:        uuid.NewString(),
+			Timestamp: time.Now().UTC(),
+			Source:    "world_manager",
+			EventType: "EntityEvent",
+			Version:   1,
+			Priority:  5,
+			Payload:   payload,
+		})
 	}
 }
 
@@ -798,3 +828,18 @@ func (wm *WorldManager) LoadBigChunkFromStorage(coords vec.Vec2) error {
 
 	return nil
 }
+
+// ==== NetChannel compatibility helper stubs ====
+// AddEntity временная заглушка для совместимости
+func (wm *WorldManager) AddEntity(e *entitypkg.Entity) error {
+	return nil
+}
+
+func (wm *WorldManager) MoveEntity(playerID uint64, newPos vec.Vec2, velocity vec.Vec2Float) error {
+	return nil
+}
+
+func (wm *WorldManager) RemoveEntity(entityID uint64) {
+}
+
+// END helper stubs

@@ -84,7 +84,7 @@ func (bc *BigChunk) processTick() {
 	bc.updateEntities()
 
 	// 4. Обработка отложенных событий
-	// TODO: Реализовать при необходимости
+	bc.processPendingEvents()
 }
 
 // updateBlocks обновляет все постоянно тикаемые блоки в BigChunk
@@ -318,12 +318,22 @@ func (bc *BigChunk) handleEvent(event Event) {
 func (bc *BigChunk) handleBlockEvent(event BlockEvent) {
 	switch event.EventType {
 	case EventTypeBlockChange:
-		// Изменение блока
-		bc.setBlock(event.Position, event.Block)
+		// Проверяем, указан ли слой в данных события
+		layer := LayerActive // По умолчанию активный слой
+		if event.Data != nil {
+			if dataMap, ok := event.Data.(map[string]interface{}); ok {
+				if layerValue, ok := dataMap["layer"].(uint8); ok {
+					layer = BlockLayer(layerValue)
+				}
+			}
+		}
+
+		// Изменение блока на указанном слое
+		bc.setBlockLayer(event.Position, layer, event.Block)
 
 		// Если изменение влияет на соседние блоки, обрабатываем это
-		// Например, для травы проверяем соседние блоки
-		if event.Block.ID == block.GrassBlockID {
+		// Например, для травы проверяем соседние блоки (только для активного слоя)
+		if layer == LayerActive && event.Block.ID == block.GrassBlockID {
 			// Добавляем блок в список тикаемых, если ещё не добавлен
 			bc.mu.Lock()
 			bc.tickables[event.Position] = struct{}{}
@@ -331,7 +341,7 @@ func (bc *BigChunk) handleBlockEvent(event BlockEvent) {
 		}
 	case EventTypeBlockInteract:
 		// Взаимодействие с блоком
-		// TODO: Реализовать
+		bc.handleBlockInteraction(event)
 	}
 }
 
@@ -477,6 +487,67 @@ func (bc *BigChunk) setBlock(pos vec.Vec2, block Block) {
 	}
 }
 
+// setBlockLayer устанавливает блок на указанном слое по глобальным координатам
+func (bc *BigChunk) setBlockLayer(pos vec.Vec2, layer BlockLayer, block Block) {
+	chunkCoords := pos.ToChunkCoords()
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	// Получаем текущий блок для проверки, нужно ли вызывать OnBreak (только для активного слоя)
+	var oldBlock Block
+	chunk, exists := bc.chunks[chunkCoords]
+	if exists && layer == LayerActive {
+		localPos := pos.LocalInChunk()
+		oldBlockID := chunk.GetBlockLayer(layer, localPos)
+		oldPayload := chunk.GetBlockMetadataLayer(layer, localPos)
+		oldBlock = Block{ID: oldBlockID, Payload: oldPayload}
+	}
+
+	// Если чанк не существует, создаем его
+	if !exists {
+		chunk = NewChunk(chunkCoords)
+		bc.chunks[chunkCoords] = chunk
+	}
+
+	localPos := pos.LocalInChunk()
+
+	// Если старый блок существует, вызываем OnBreak (только для активного слоя)
+	if exists && layer == LayerActive && oldBlock.ID != block.ID {
+		if behavior, exists := oldBlock.GetBehavior(); exists {
+			api := bc.createBlockAPI()
+			behavior.OnBreak(api, pos)
+		}
+	}
+
+	// Устанавливаем блок на указанном слое
+	chunk.SetBlockLayer(layer, localPos, block.ID)
+
+	// Если есть метаданные - устанавливаем их
+	if len(block.Payload) > 0 {
+		for key, value := range block.Payload {
+			chunk.SetBlockMetadataLayer(layer, localPos, key, value)
+		}
+	}
+
+	// Обновляем список тикаемых блоков (только для активного слоя)
+	if layer == LayerActive {
+		if block.NeedsTick() {
+			bc.tickables[pos] = struct{}{}
+		} else {
+			delete(bc.tickables, pos)
+		}
+	}
+
+	// Вызываем OnPlace для нового блока (только для активного слоя)
+	if layer == LayerActive && oldBlock.ID != block.ID {
+		if behavior, exists := block.GetBehavior(); exists {
+			api := bc.createBlockAPI()
+			behavior.OnPlace(api, pos)
+		}
+	}
+}
+
 // spawnEntity создает новую сущность в BigChunk
 func (bc *BigChunk) spawnEntity(event EntityEvent) {
 	bc.mu.Lock()
@@ -598,4 +669,81 @@ func (bc *BigChunk) AddOnceTickable(pos vec.Vec2) {
 	defer bc.mu.Unlock()
 
 	bc.onceTickables[pos] = struct{}{}
+}
+
+// handleBlockInteraction обрабатывает взаимодействие с блоком
+func (bc *BigChunk) handleBlockInteraction(event BlockEvent) {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+
+	pos := event.Position
+	chunkCoords := pos.ToChunkCoords()
+
+	// Проверяем, существует ли чанк
+	chunk, exists := bc.chunks[chunkCoords]
+	if !exists {
+		return
+	}
+
+	localPos := pos.LocalInChunk()
+	blockID := chunk.GetBlock(localPos)
+	blockMetadata := chunk.GetBlockMetadata(localPos)
+
+	block := Block{ID: blockID, Payload: blockMetadata}
+
+	// Получаем поведение блока
+	behavior, exists := block.GetBehavior()
+	if !exists {
+		return
+	}
+
+	// Проверяем, поддерживает ли блок взаимодействие
+	if interactable, ok := behavior.(interface {
+		OnInteract(api *bigChunkBlockAPI, pos vec.Vec2, playerID uint64) bool
+	}); ok {
+		// Создаем API для блока
+		api := bc.createBlockAPI()
+
+		// Извлекаем ID игрока из данных события
+		var playerID uint64
+		if event.Data != nil {
+			if data, ok := event.Data.(map[string]interface{}); ok {
+				if id, ok := data["player_id"].(uint64); ok {
+					playerID = id
+				}
+			}
+		}
+
+		// Вызываем взаимодействие
+		success := interactable.OnInteract(api, pos, playerID)
+
+		// Если взаимодействие успешно, отправляем подтверждение
+		if success {
+			responseEvent := BlockEvent{
+				EventType: EventTypeBlockInteract,
+				Position:  pos,
+				Data: map[string]interface{}{
+					"success":   true,
+					"player_id": playerID,
+					"block_id":  blockID,
+				},
+			}
+			bc.eventsOut <- responseEvent
+		}
+	}
+}
+
+// processPendingEvents обрабатывает отложенные события без блокировки
+func (bc *BigChunk) processPendingEvents() {
+	// Обрабатываем все события, накопившиеся в канале eventsIn
+	// без блокировки основного цикла
+	for {
+		select {
+		case event := <-bc.eventsIn:
+			bc.handleEvent(event)
+		default:
+			// Нет больше событий для обработки
+			return
+		}
+	}
 }

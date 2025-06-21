@@ -223,10 +223,7 @@ func (bdm *BlockDeltaManager) sendDeltasToSubscriber(connID string, subscriber *
 		*/
 
 		// Отправляем delta через network manager
-		bdm.networkManager.SendBlockUpdate(vec.Vec2{}, Block{}) // Временное решение
-
-		// Можно также отправить напрямую через TCP, если нет подходящего метода в NetworkManager
-		// TODO: добавить метод SendChunkDelta в NetworkManager
+		bdm.sendChunkDelta(connID, chunkCoords, delta)
 
 		log.Printf("Отправлена delta чанка %v клиенту %s: %d изменений", chunkCoords, connID, len(delta.Changes))
 	}
@@ -279,4 +276,43 @@ func (bdm *BlockDeltaManager) GetSubscribersCount() int {
 	defer bdm.mu.RUnlock()
 
 	return len(bdm.subscribers)
+}
+
+// sendChunkDelta отправляет изменения чанка конкретному клиенту
+func (bdm *BlockDeltaManager) sendChunkDelta(connID string, chunkCoords vec.Vec2, delta *ChunkDelta) {
+	// Формируем сообщение с изменениями блоков
+	message := map[string]interface{}{
+		"type":         "chunk_delta",
+		"chunk_coords": map[string]int{"x": chunkCoords.X, "y": chunkCoords.Y},
+		"version":      delta.Version,
+		"changes":      make([]map[string]interface{}, 0, len(delta.Changes)),
+		"crc32":        bdm.calculateDeltaCRC(delta),
+	}
+
+	// Добавляем все изменения блоков
+	changes := message["changes"].([]map[string]interface{})
+	for localPos, change := range delta.Changes {
+		changeData := map[string]interface{}{
+			"local_pos": map[string]int{"x": localPos.X, "y": localPos.Y},
+			"block_id":  uint32(change.BlockID),
+			"type":      change.ChangeType,
+			"player_id": change.PlayerID,
+		}
+
+		// Добавляем метаданные, если есть
+		if change.Metadata != nil && len(change.Metadata) > 0 {
+			changeData["metadata"] = change.Metadata
+		}
+
+		changes = append(changes, changeData)
+	}
+	message["changes"] = changes
+
+	// Отправляем через NetworkManager
+	// В реальной реализации здесь будет вызов метода отправки сообщения
+	// bdm.networkManager.SendMessage(connID, message)
+
+	// Пока что логируем отправку
+	log.Printf("📤 Отправка delta чанка %v клиенту %s: %d изменений (версия %d)",
+		chunkCoords, connID, len(delta.Changes), delta.Version)
 }

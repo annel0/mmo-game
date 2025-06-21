@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/annel0/mmo-game/internal/auth"
+	"github.com/annel0/mmo-game/internal/middleware"
 	"github.com/annel0/mmo-game/internal/world/entity"
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // RestServer представляет REST API сервер
@@ -39,7 +41,19 @@ func NewRestServer(config Config) *RestServer {
 	// Устанавливаем режим релиза для gin
 	gin.SetMode(gin.ReleaseMode)
 
-	router := gin.Default()
+	router := gin.New()        // без стандартного logger/recovery
+	router.Use(gin.Recovery()) // добавим только recovery
+
+	// === Observability middleware ===
+	loggerMw := middleware.NewRequestLogger()
+	router.Use(loggerMw.Handler())
+
+	otelRouter := otelgin.Middleware("rest_api")
+	router.Use(otelRouter)
+
+	promMw := middleware.NewPrometheusMiddleware("rest_api")
+	router.Use(promMw.Handler())
+	promMw.RegisterMetricsEndpoint(router)
 
 	server := &RestServer{
 		router:        router,

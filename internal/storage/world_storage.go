@@ -192,10 +192,8 @@ func (ws *WorldStorage) ApplyDeltaToChunk(chunk *world.Chunk, delta *ChunkDelta)
 		return nil
 	}
 
-	chunk.Mu.Lock()
-	defer chunk.Mu.Unlock()
-
-	// Применяем изменения к чанку
+	// Применяем изменения к чанку без дополнительной блокировки
+	// так как SetBlock и SetBlockMetadataMap сами управляют мьютексами
 	for key, blockDelta := range delta.BlockDeltas {
 		var x, y int
 		if _, err := fmt.Sscanf(key, "%d:%d", &x, &y); err != nil {

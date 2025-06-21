@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/annel0/mmo-game/internal/auth"
+	"github.com/annel0/mmo-game/internal/storage"
 	"github.com/annel0/mmo-game/internal/world/entity"
 )
 
@@ -15,6 +16,7 @@ import (
 type ServerIntegration struct {
 	restServer    *RestServer
 	userRepo      auth.UserRepository
+	positionRepo  storage.PositionRepo
 	entityManager *entity.EntityManager
 	httpServer    *http.Server
 	ctx           context.Context
@@ -34,6 +36,23 @@ type IntegrationConfig struct {
 
 	// Использовать ли MariaDB вместо in-memory репозитория
 	UseMariaDB bool
+
+	// === НОВЫЕ НАСТРОЙКИ ДЛЯ ПОЗИЦИЙ ===
+
+	// PositionStorageConfig конфигурация хранилища позиций
+	PositionStorage PositionStorageConfig
+}
+
+// PositionStorageConfig содержит настройки для хранилища позиций игроков
+type PositionStorageConfig struct {
+	// Тип хранилища: "memory", "mariadb"
+	Type string
+
+	// DSN для подключения к MariaDB (только для Type = "mariadb")
+	MariaDBDSN string
+
+	// Fallback к in-memory, если MariaDB недоступна
+	FallbackToMemory bool
 }
 
 // NewServerIntegration создает новую интеграцию REST API с игровым сервером
@@ -62,6 +81,33 @@ func NewServerIntegration(config IntegrationConfig) (*ServerIntegration, error) 
 		log.Println("⚠️  Используется in-memory репозиторий пользователей")
 	}
 
+	// Инициализируем репозиторий позиций
+	var positionRepo storage.PositionRepo
+
+	switch config.PositionStorage.Type {
+	case "mariadb":
+		// Пытаемся подключиться к MariaDB
+		mariaRepo, err := storage.NewMariaPositionRepo(config.PositionStorage.MariaDBDSN)
+		if err != nil {
+			if config.PositionStorage.FallbackToMemory {
+				log.Printf("⚠️ Не удалось подключиться к MariaDB для позиций, используем память: %v", err)
+				positionRepo = storage.NewMemoryPositionRepo()
+			} else {
+				cancel()
+				return nil, fmt.Errorf("не удалось инициализировать репозиторий позиций MariaDB: %w", err)
+			}
+		} else {
+			positionRepo = mariaRepo
+			log.Println("✅ MariaDB репозиторий позиций подключен успешно")
+		}
+
+	case "memory":
+		fallthrough
+	default:
+		positionRepo = storage.NewMemoryPositionRepo()
+		log.Println("⚠️ Используется in-memory репозиторий позиций (данные не сохраняются)")
+	}
+
 	// Создаем REST сервер
 	restServer := NewRestServer(Config{
 		Port:          config.RestPort,
@@ -72,6 +118,7 @@ func NewServerIntegration(config IntegrationConfig) (*ServerIntegration, error) 
 	integration := &ServerIntegration{
 		restServer:    restServer,
 		userRepo:      userRepo,
+		positionRepo:  positionRepo,
 		entityManager: config.EntityManager,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -130,7 +177,16 @@ func (si *ServerIntegration) Stop() error {
 	if si.userRepo != nil {
 		if closer, ok := si.userRepo.(interface{ Close() error }); ok {
 			if err := closer.Close(); err != nil {
-				log.Printf("❌ Ошибка при закрытии репозитория: %v", err)
+				log.Printf("❌ Ошибка при закрытии репозитория пользователей: %v", err)
+			}
+		}
+	}
+
+	// Закрываем репозиторий позиций
+	if si.positionRepo != nil {
+		if closer, ok := si.positionRepo.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				log.Printf("❌ Ошибка при закрытии репозитория позиций: %v", err)
 			}
 		}
 	}
@@ -145,6 +201,11 @@ func (si *ServerIntegration) Stop() error {
 // GetUserRepository возвращает репозиторий пользователей (для использования в игровом сервере)
 func (si *ServerIntegration) GetUserRepository() auth.UserRepository {
 	return si.userRepo
+}
+
+// GetPositionRepository возвращает репозиторий позиций (для использования в игровом сервере)
+func (si *ServerIntegration) GetPositionRepository() storage.PositionRepo {
+	return si.positionRepo
 }
 
 // GetRestServer возвращает REST сервер (для дополнительной настройки)

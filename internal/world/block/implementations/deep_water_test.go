@@ -169,3 +169,160 @@ func TestDeepWaterBehavior_Properties(t *testing.T) {
 		t.Errorf("Метаданные должны содержать level=7")
 	}
 }
+
+// testBlock - структура для хранения блока в тестовом мире
+type testBlock struct {
+	id       block.BlockID
+	metadata map[string]interface{}
+}
+
+func TestDeepWaterWithLayers(t *testing.T) {
+	// Регистрируем базовые блоки если они ещё не зарегистрированы
+	if _, exists := block.Get(block.AirBlockID); !exists {
+		block.Register(block.AirBlockID, &AirBehavior{})
+	}
+	if _, exists := block.Get(block.WaterBlockID); !exists {
+		block.Register(block.WaterBlockID, &WaterBehavior{})
+	}
+	if _, exists := block.Get(block.DeepWaterBlockID); !exists {
+		block.Register(block.DeepWaterBlockID, &DeepWaterBehavior{})
+	}
+	if _, exists := block.Get(block.DirtBlockID); !exists {
+		block.Register(block.DirtBlockID, &DirtBehavior{})
+	}
+	if _, exists := block.Get(block.StoneBlockID); !exists {
+		block.Register(block.StoneBlockID, &StoneBehavior{})
+	}
+
+	t.Run("deep_water_should_be_in_floor_layer", func(t *testing.T) {
+		// Создаем тестовый мир со слоями
+		world := createLayeredTestWorld()
+		api := &testLayeredBlockAPI{world: world}
+
+		// Размещаем глубинную воду в слое FLOOR
+		api.SetBlockLayer(0, vec.Vec2{X: 5, Y: 5}, block.DeepWaterBlockID)
+
+		// Проверяем, что вода в слое FLOOR
+		if api.GetBlockIDLayer(0, vec.Vec2{X: 5, Y: 5}) != block.DeepWaterBlockID {
+			t.Error("Deep water should be in floor layer")
+		}
+
+		// Проверяем, что в активном слое воздух
+		if api.GetBlockIDLayer(1, vec.Vec2{X: 5, Y: 5}) != block.AirBlockID {
+			t.Error("Active layer should have air above deep water")
+		}
+	})
+
+	t.Run("deep_water_converts_to_regular_water_on_active_layer", func(t *testing.T) {
+		world := createLayeredTestWorld()
+		api := &testLayeredBlockAPI{world: world}
+
+		// Размещаем глубинную воду в активном слое (старая логика)
+		deepWater := &DeepWaterBehavior{}
+		api.SetBlockLayer(1, vec.Vec2{X: 5, Y: 5}, block.DeepWaterBlockID)
+		deepWater.OnPlace(api, vec.Vec2{X: 5, Y: 5})
+
+		// Размещаем твердый блок рядом
+		api.SetBlockLayer(1, vec.Vec2{X: 6, Y: 5}, block.DirtBlockID)
+
+		// Запускаем обновление
+		api.TriggerNeighborUpdates(vec.Vec2{X: 6, Y: 5})
+		deepWater.TickUpdate(api, vec.Vec2{X: 5, Y: 5})
+
+		// Проверяем, что глубинная вода превратилась в обычную
+		if api.GetBlockIDLayer(1, vec.Vec2{X: 5, Y: 5}) != block.WaterBlockID {
+			t.Error("Deep water should convert to regular water when adjacent to solid blocks")
+		}
+	})
+}
+
+// createLayeredTestWorld создаёт тестовый мир с поддержкой слоёв
+func createLayeredTestWorld() map[vec.Vec2]map[uint8]testBlock {
+	world := make(map[vec.Vec2]map[uint8]testBlock)
+	// Инициализируем базовые позиции
+	for x := 0; x < 10; x++ {
+		for y := 0; y < 10; y++ {
+			pos := vec.Vec2{X: x, Y: y}
+			world[pos] = map[uint8]testBlock{
+				0: {id: block.AirBlockID}, // FLOOR
+				1: {id: block.AirBlockID}, // ACTIVE
+				2: {id: block.AirBlockID}, // CEILING
+			}
+		}
+	}
+	return world
+}
+
+// testLayeredBlockAPI - тестовая реализация BlockAPI с поддержкой слоёв
+type testLayeredBlockAPI struct {
+	world         map[vec.Vec2]map[uint8]testBlock
+	scheduledOnce map[vec.Vec2]bool
+}
+
+func (api *testLayeredBlockAPI) GetBlockID(pos vec.Vec2) block.BlockID {
+	return api.GetBlockIDLayer(1, pos) // По умолчанию активный слой
+}
+
+func (api *testLayeredBlockAPI) SetBlock(pos vec.Vec2, id block.BlockID) {
+	api.SetBlockLayer(1, pos, id) // По умолчанию активный слой
+}
+
+func (api *testLayeredBlockAPI) GetBlockMetadata(pos vec.Vec2, key string) interface{} {
+	if layers, ok := api.world[pos]; ok {
+		if b, ok := layers[1]; ok {
+			return b.metadata[key]
+		}
+	}
+	return nil
+}
+
+func (api *testLayeredBlockAPI) SetBlockMetadata(pos vec.Vec2, key string, value interface{}) {
+	if layers, ok := api.world[pos]; ok {
+		if b, ok := layers[1]; ok {
+			if b.metadata == nil {
+				b.metadata = make(map[string]interface{})
+			}
+			b.metadata[key] = value
+			layers[1] = b
+		}
+	}
+}
+
+func (api *testLayeredBlockAPI) GetBlockIDLayer(layer uint8, pos vec.Vec2) block.BlockID {
+	if layers, ok := api.world[pos]; ok {
+		if b, ok := layers[layer]; ok {
+			return b.id
+		}
+	}
+	return block.AirBlockID
+}
+
+func (api *testLayeredBlockAPI) SetBlockLayer(layer uint8, pos vec.Vec2, id block.BlockID) {
+	if _, ok := api.world[pos]; !ok {
+		api.world[pos] = make(map[uint8]testBlock)
+	}
+
+	api.world[pos][layer] = testBlock{
+		id:       id,
+		metadata: make(map[string]interface{}),
+	}
+}
+
+func (api *testLayeredBlockAPI) ScheduleUpdateOnce(pos vec.Vec2) {
+	if api.scheduledOnce == nil {
+		api.scheduledOnce = make(map[vec.Vec2]bool)
+	}
+	api.scheduledOnce[pos] = true
+}
+
+func (api *testLayeredBlockAPI) TriggerNeighborUpdates(pos vec.Vec2) {
+	neighbors := []vec.Vec2{
+		{X: pos.X + 1, Y: pos.Y},
+		{X: pos.X - 1, Y: pos.Y},
+		{X: pos.X, Y: pos.Y + 1},
+		{X: pos.X, Y: pos.Y - 1},
+	}
+	for _, neighbor := range neighbors {
+		api.ScheduleUpdateOnce(neighbor)
+	}
+}

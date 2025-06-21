@@ -81,7 +81,7 @@ func (ChatType) EnumDescriptor() ([]byte, []int) {
 }
 
 // Запрос на отправку сообщения чата
-type ChatRequest struct {
+type ChatMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          ChatType               `protobuf:"varint,1,opt,name=type,proto3,enum=protocol.ChatType" json:"type,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -91,20 +91,20 @@ type ChatRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ChatRequest) Reset() {
-	*x = ChatRequest{}
+func (x *ChatMessage) Reset() {
+	*x = ChatMessage{}
 	mi := &file_chat_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ChatRequest) String() string {
+func (x *ChatMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ChatRequest) ProtoMessage() {}
+func (*ChatMessage) ProtoMessage() {}
 
-func (x *ChatRequest) ProtoReflect() protoreflect.Message {
+func (x *ChatMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_chat_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -116,33 +116,33 @@ func (x *ChatRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ChatRequest.ProtoReflect.Descriptor instead.
-func (*ChatRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChatMessage.ProtoReflect.Descriptor instead.
+func (*ChatMessage) Descriptor() ([]byte, []int) {
 	return file_chat_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *ChatRequest) GetType() ChatType {
+func (x *ChatMessage) GetType() ChatType {
 	if x != nil {
 		return x.Type
 	}
 	return ChatType_CHAT_GLOBAL
 }
 
-func (x *ChatRequest) GetMessage() string {
+func (x *ChatMessage) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *ChatRequest) GetTargetId() uint64 {
+func (x *ChatMessage) GetTargetId() uint64 {
 	if x != nil && x.TargetId != nil {
 		return *x.TargetId
 	}
 	return 0
 }
 
-func (x *ChatRequest) GetTargetGroup() string {
+func (x *ChatMessage) GetTargetGroup() string {
 	if x != nil && x.TargetGroup != nil {
 		return *x.TargetGroup
 	}
@@ -150,7 +150,7 @@ func (x *ChatRequest) GetTargetGroup() string {
 }
 
 // Сообщение чата, отправляемое сервером
-type ChatBroadcast struct {
+type ChatBroadcastMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          ChatType               `protobuf:"varint,1,opt,name=type,proto3,enum=protocol.ChatType" json:"type,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -163,20 +163,20 @@ type ChatBroadcast struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ChatBroadcast) Reset() {
-	*x = ChatBroadcast{}
+func (x *ChatBroadcastMessage) Reset() {
+	*x = ChatBroadcastMessage{}
 	mi := &file_chat_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ChatBroadcast) String() string {
+func (x *ChatBroadcastMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ChatBroadcast) ProtoMessage() {}
+func (*ChatBroadcastMessage) ProtoMessage() {}
 
-func (x *ChatBroadcast) ProtoReflect() protoreflect.Message {
+func (x *ChatBroadcastMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_chat_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -188,54 +188,54 @@ func (x *ChatBroadcast) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ChatBroadcast.ProtoReflect.Descriptor instead.
-func (*ChatBroadcast) Descriptor() ([]byte, []int) {
+// Deprecated: Use ChatBroadcastMessage.ProtoReflect.Descriptor instead.
+func (*ChatBroadcastMessage) Descriptor() ([]byte, []int) {
 	return file_chat_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ChatBroadcast) GetType() ChatType {
+func (x *ChatBroadcastMessage) GetType() ChatType {
 	if x != nil {
 		return x.Type
 	}
 	return ChatType_CHAT_GLOBAL
 }
 
-func (x *ChatBroadcast) GetMessage() string {
+func (x *ChatBroadcastMessage) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *ChatBroadcast) GetSenderId() uint64 {
+func (x *ChatBroadcastMessage) GetSenderId() uint64 {
 	if x != nil {
 		return x.SenderId
 	}
 	return 0
 }
 
-func (x *ChatBroadcast) GetSenderName() string {
+func (x *ChatBroadcastMessage) GetSenderName() string {
 	if x != nil {
 		return x.SenderName
 	}
 	return ""
 }
 
-func (x *ChatBroadcast) GetTimestamp() int64 {
+func (x *ChatBroadcastMessage) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-func (x *ChatBroadcast) GetTargetId() uint64 {
+func (x *ChatBroadcastMessage) GetTargetId() uint64 {
 	if x != nil && x.TargetId != nil {
 		return *x.TargetId
 	}
 	return 0
 }
 
-func (x *ChatBroadcast) GetTargetGroup() string {
+func (x *ChatBroadcastMessage) GetTargetGroup() string {
 	if x != nil && x.TargetGroup != nil {
 		return *x.TargetGroup
 	}
@@ -248,15 +248,15 @@ const file_chat_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
 	"chat.proto\x12\bprotocol\"\xb8\x01\n" +
-	"\vChatRequest\x12&\n" +
+	"\vChatMessage\x12&\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x12.protocol.ChatTypeR\x04type\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12 \n" +
 	"\ttarget_id\x18\x03 \x01(\x04H\x00R\btargetId\x88\x01\x01\x12&\n" +
 	"\ftarget_group\x18\x04 \x01(\tH\x01R\vtargetGroup\x88\x01\x01B\f\n" +
 	"\n" +
 	"_target_idB\x0f\n" +
-	"\r_target_group\"\x96\x02\n" +
-	"\rChatBroadcast\x12&\n" +
+	"\r_target_group\"\x9d\x02\n" +
+	"\x14ChatBroadcastMessage\x12&\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x12.protocol.ChatTypeR\x04type\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1b\n" +
 	"\tsender_id\x18\x03 \x01(\x04R\bsenderId\x12\x1f\n" +
@@ -293,13 +293,13 @@ func file_chat_proto_rawDescGZIP() []byte {
 var file_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_chat_proto_goTypes = []any{
-	(ChatType)(0),         // 0: protocol.ChatType
-	(*ChatRequest)(nil),   // 1: protocol.ChatRequest
-	(*ChatBroadcast)(nil), // 2: protocol.ChatBroadcast
+	(ChatType)(0),                // 0: protocol.ChatType
+	(*ChatMessage)(nil),          // 1: protocol.ChatMessage
+	(*ChatBroadcastMessage)(nil), // 2: protocol.ChatBroadcastMessage
 }
 var file_chat_proto_depIdxs = []int32{
-	0, // 0: protocol.ChatRequest.type:type_name -> protocol.ChatType
-	0, // 1: protocol.ChatBroadcast.type:type_name -> protocol.ChatType
+	0, // 0: protocol.ChatMessage.type:type_name -> protocol.ChatType
+	0, // 1: protocol.ChatBroadcastMessage.type:type_name -> protocol.ChatType
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name

@@ -21,15 +21,27 @@ func init() {
 	}
 }
 
-// Claims represents JWT claims
+// Claims представляет структуру данных JWT токена.
+// Содержит идентификацию пользователя и его права доступа.
 type Claims struct {
-	PlayerID uint64 `json:"player_id"`
-	Username string `json:"username"`
-	IsAdmin  bool   `json:"is_admin"`
-	jwt.RegisteredClaims
+	PlayerID             uint64 `json:"player_id"` // Уникальный идентификатор игрока
+	Username             string `json:"username"`  // Имя пользователя
+	IsAdmin              bool   `json:"is_admin"`  // Флаг администраторских прав
+	jwt.RegisteredClaims        // Стандартные JWT claims
 }
 
-// GenerateJWT creates a secure JWT token for the given user
+// GenerateJWT создает безопасный JWT токен для указанного пользователя.
+// Токен содержит идентификатор игрока, имя пользователя и права доступа.
+// Срок действия токена составляет 24 часа.
+//
+// Параметры:
+//
+//	user - пользователь, для которого создается токен
+//
+// Возвращает:
+//
+//	string - подписанный JWT токен
+//	error - ошибка при создании или подписи токена
 func GenerateJWT(user *User) (string, error) {
 	claims := &Claims{
 		PlayerID: user.ID,
@@ -48,10 +60,21 @@ func GenerateJWT(user *User) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-// ValidateJWT checks token validity and returns associated user info
+// ValidateJWT проверяет действительность JWT токена и извлекает информацию о пользователе.
+// Выполняет валидацию подписи, срока действия и метода подписи.
+//
+// Параметры:
+//
+//	tokenString - строка JWT токена для валидации
+//
+// Возвращает:
+//
+//	playerID - идентификатор игрока (0 если токен недействителен)
+//	isValid - флаг действительности токена
+//	isAdmin - флаг администраторских прав (false если токен недействителен)
 func ValidateJWT(tokenString string) (playerID uint64, isValid bool, isAdmin bool) {
 	claims := &Claims{}
-	
+
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		// Verify signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -67,16 +90,32 @@ func ValidateJWT(tokenString string) (playerID uint64, isValid bool, isAdmin boo
 	return claims.PlayerID, true, claims.IsAdmin
 }
 
-// GenerateSecureSecret generates a new secure secret key
-func GenerateSecureSecret() string {
+// GenerateSecureSecret генерирует новый криптографически безопасный секретный ключ.
+// Ключ имеет длину 32 байта и кодируется в base64.
+//
+// Возвращает:
+//
+//	string - base64-кодированный секретный ключ
+//	error - ошибка при генерации случайных данных
+func GenerateSecureSecret() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		panic(err)
+		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
-// SetJWTSecret allows setting a custom secret key (for production use)
+// SetJWTSecret устанавливает пользовательский секретный ключ для подписи JWT токенов.
+// Используется в продакшн среде для установки ключа из переменных окружения.
+// Ключ должен быть base64-кодированным и иметь длину не менее 32 байт.
+//
+// Параметры:
+//
+//	secret - base64-кодированный секретный ключ
+//
+// Возвращает:
+//
+//	error - ошибка при декодировании или валидации ключа
 func SetJWTSecret(secret string) error {
 	decoded, err := base64.StdEncoding.DecodeString(secret)
 	if err != nil {

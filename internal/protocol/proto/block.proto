@@ -16,7 +16,7 @@ message BlockUpdateRequest {
 }
 
 // Ответ на обновление блока
-message BlockUpdateResponse {
+message BlockUpdateResponseMessage {
   bool success = 1;
   string message = 2;
   uint32 block_id = 3;

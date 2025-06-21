@@ -1,0 +1,219 @@
+run:
+  timeout: 5m
+  tests: true
+  build-tags:
+    - integration
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - errcheck
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - gosec
+    - gocritic
+    - gocyclo
+    - dupl
+    - misspell
+    - lll
+    - nakedret
+    - prealloc
+    - exportloopref
+    - bodyclose
+    - noctx
+    - rowserrcheck
+    - stylecheck
+    - unconvert
+    - unparam
+    - whitespace
+    - wsl
+    - godot
+    - godox
+    - goerr113
+    - gomnd
+    - gomodguard
+    - goprintffuncname
+    - nestif
+    - nilerr
+    - nlreturn
+    - nolintlint
+    - revive
+    - thelper
+    - tparallel
+    - typecheck
+    - unmisspell
+    - wrapcheck
+
+  disable:
+    - exhaustive
+    - gochecknoglobals
+    - gochecknoinits
+    - goconst
+    - gocognit
+    - funlen
+    - maligned
+    - depguard
+
+linters-settings:
+  gofmt:
+    simplify: true
+  
+  goimports:
+    local-prefixes: github.com/annel0/mmo-game
+  
+  govet:
+    check-shadowing: true
+    enable-all: true
+  
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - experimental
+      - opinionated
+  
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked
+      - G304 # File path provided as taint input
+  
+  lll:
+    line-length: 120
+  
+  misspell:
+    locale: US
+  
+  nakedret:
+    max-func-lines: 30
+  
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: true
+  
+  gomodguard:
+    blocked:
+      modules:
+        - github.com/pkg/errors:
+            recommendations:
+              - errors
+              - fmt
+            reason: "use stdlib errors"
+  
+  revive:
+    ignore-generated-header: true
+    severity: warning
+    rules:
+      - name: exported
+        severity: warning
+      - name: error-return
+        severity: warning
+      - name: error-naming
+        severity: warning
+      - name: if-return
+        severity: warning
+      - name: var-naming
+        severity: warning
+      - name: var-declaration
+        severity: warning
+      - name: receiver-naming
+        severity: warning
+      - name: errorf
+        severity: warning
+      - name: empty-block
+        severity: warning
+      - name: unused-parameter
+        severity: warning
+      - name: unreachable-code
+        severity: warning
+      - name: redefines-builtin-id
+        severity: warning
+  
+  wsl:
+    allow-cuddle-declarations: false
+    allow-trailing-comment: false
+    force-case-trailing-whitespace: 0
+  
+  gomnd:
+    settings:
+      mnd:
+        checks:
+          - argument
+          - case
+          - condition
+          - operation
+          - return
+          - assign
+        ignored-numbers:
+          - '0'
+          - '1'
+          - '2'
+          - '10'
+          - '16'
+          - '32'
+          - '64'
+          - '100'
+          - '1000'
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goerr113
+        - wrapcheck
+    
+    # Exclude known issues in vendor
+    - path: vendor/
+      linters:
+        - typecheck
+        - unused
+    
+    # Exclude generated files
+    - path: \.pb\.go$
+      linters:
+        - golint
+        - stylecheck
+        - gosimple
+        - ineffassign
+        - staticcheck
+        - revive
+    
+    # Exclude main packages
+    - path: cmd/.*/main\.go
+      linters:
+        - gomnd
+    
+    # Allow TODO comments
+    - text: "TODO"
+      linters:
+        - godox
+  
+  # Maximum issues count per one linter. Set to 0 to disable.
+  max-issues-per-linter: 50
+  
+  # Maximum count of issues with the same text. Set to 0 to disable.
+  max-same-issues: 3
+  
+  # Show only new issues
+  new: false
+
+severity:
+  default-severity: warning
+  rules:
+    - linters:
+        - gosec
+      severity: error
+    - linters:
+        - govet
+        - errcheck
+      severity: error 

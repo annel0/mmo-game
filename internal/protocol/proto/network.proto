@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package protocol;
+
+option go_package = "github.com/annel0/mmo-game/internal/protocol";
+
+import "auth.proto";
+import "chunk.proto";
+import "block.proto";
+import "entity.proto";
+import "chat.proto";
+import "ping.proto";
+import "common.proto";
+import "prediction.proto";
+
+// CompressionType определяет тип сжатия сообщения
+enum CompressionType {
+  NONE = 0;
+  ZSTD = 1;
+}
+
+// NetFlags - флаги уровня надёжности
+enum NetFlags {
+  UNRELIABLE_UNORDERED = 0; // Быстрое сообщение, может теряться
+  RELIABLE_ORDERED = 1;     // Гарантированная доставка и порядок
+  RELIABLE_UNORDERED = 2;   // Гарантированная доставка, порядок не важен
+}
+
+// NetGameMessage - новая универсальная обёртка для всех сообщений
+message NetGameMessage {
+  uint32 sequence = 1;    // Номер пакета
+  uint32 ack = 2;         // Подтверждаем полученный пакет
+  uint32 ack_bits = 3;    // Маска подтверждений
+  NetFlags flags = 4;     // Флаги надёжности
+  CompressionType compression = 5; // Тип сжатия
+
+  // Основное содержимое - используем правильные имена из существующих proto файлов
+  oneof payload {
+    // Auth messages
+    AuthMessage auth_request = 10;
+    AuthResponseMessage auth_response = 11;
+    
+    // Chunk messages
+    ChunkRequest chunk_request = 12;
+    ChunkData chunk_data = 13;
+    ChunkBatchRequest chunk_batch_request = 14;
+    ChunkBlockDelta chunk_block_delta = 15;
+    SubscribeBlockUpdates subscribe_block_updates = 16;
+    UnsubscribeBlockUpdates unsubscribe_block_updates = 17;
+    
+    // Block messages
+    BlockUpdateRequest block_update_request = 18;
+    BlockUpdateResponseMessage block_update_response = 19;
+    BlockUpdateMessage block_update = 20;
+    BlockEventMessage block_event = 21;
+    
+    // Entity messages
+    EntitySpawnMessage entity_spawn = 22;
+    EntityMoveMessage entity_move = 23;
+    EntityDespawnMessage entity_despawn = 24;
+    EntityActionRequest entity_action_request = 25;
+    EntityActionResponse entity_action_response = 26;
+    
+    // Chat messages
+    ChatMessage chat = 27;
+    ChatBroadcastMessage chat_broadcast = 28;
+    
+    // Ping messages
+    PingMessage ping = 29;
+    PongMessage pong = 30;
+    
+    // Network-level messages
+    AckMessage ack_message = 31;
+    HeartbeatMessage heartbeat = 32;
+    ConnectionMessage connection = 33;
+    
+    // World events
+    WorldEventMessage world_event = 34;
+    
+    // Client-side prediction messages
+    ClientInputMessage client_input = 35;
+    WorldSnapshotMessage world_snapshot = 36;
+    InputAckMessage input_ack = 37;
+    PredictionStatsMessage prediction_stats = 38;
+  }
+}
+
+// AckMessage для подтверждения доставки
+message AckMessage {
+  uint32 sequence = 1;       // подтверждённый пакет
+  uint32 received_bits = 2;  // битовая маска последних 32 пакетов
+}
+
+// HeartbeatMessage для измерения RTT и keep-alive
+message HeartbeatMessage {
+  int64 client_time = 1;
+  int64 server_time = 2;
+  int32 rtt_ms = 3;          // Round-trip time в миллисекундах
+}
+
+// ConnectionMessage для handshake/disconnect
+message ConnectionMessage {
+  enum ConnType {
+    CONNECT = 0;
+    ACCEPT = 1;
+    REJECT = 2;
+    DISCONNECT = 3;
+  }
+  ConnType type = 1;
+  uint32 protocol_version = 2;
+  string reason = 3;
+  map<string, string> metadata = 4;
+}
+
+// WorldEventMessage для игровых событий
+message WorldEventMessage {
+  string event_type = 1;
+  Vec2 position = 2;
+  JsonMetadata metadata = 3;
+  repeated uint64 affected_players = 4; // Кто должен получить это событие
+} 

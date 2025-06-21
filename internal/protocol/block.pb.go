@@ -99,7 +99,7 @@ func (x *BlockUpdateRequest) GetAction() string {
 }
 
 // Ответ на обновление блока
-type BlockUpdateResponse struct {
+type BlockUpdateResponseMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
@@ -112,20 +112,20 @@ type BlockUpdateResponse struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *BlockUpdateResponse) Reset() {
-	*x = BlockUpdateResponse{}
+func (x *BlockUpdateResponseMessage) Reset() {
+	*x = BlockUpdateResponseMessage{}
 	mi := &file_block_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *BlockUpdateResponse) String() string {
+func (x *BlockUpdateResponseMessage) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*BlockUpdateResponse) ProtoMessage() {}
+func (*BlockUpdateResponseMessage) ProtoMessage() {}
 
-func (x *BlockUpdateResponse) ProtoReflect() protoreflect.Message {
+func (x *BlockUpdateResponseMessage) ProtoReflect() protoreflect.Message {
 	mi := &file_block_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -137,54 +137,54 @@ func (x *BlockUpdateResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use BlockUpdateResponse.ProtoReflect.Descriptor instead.
-func (*BlockUpdateResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use BlockUpdateResponseMessage.ProtoReflect.Descriptor instead.
+func (*BlockUpdateResponseMessage) Descriptor() ([]byte, []int) {
 	return file_block_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *BlockUpdateResponse) GetSuccess() bool {
+func (x *BlockUpdateResponseMessage) GetSuccess() bool {
 	if x != nil {
 		return x.Success
 	}
 	return false
 }
 
-func (x *BlockUpdateResponse) GetMessage() string {
+func (x *BlockUpdateResponseMessage) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
 	return ""
 }
 
-func (x *BlockUpdateResponse) GetBlockId() uint32 {
+func (x *BlockUpdateResponseMessage) GetBlockId() uint32 {
 	if x != nil {
 		return x.BlockId
 	}
 	return 0
 }
 
-func (x *BlockUpdateResponse) GetPosition() *Vec2 {
+func (x *BlockUpdateResponseMessage) GetPosition() *Vec2 {
 	if x != nil {
 		return x.Position
 	}
 	return nil
 }
 
-func (x *BlockUpdateResponse) GetLayer() BlockLayer {
+func (x *BlockUpdateResponseMessage) GetLayer() BlockLayer {
 	if x != nil {
 		return x.Layer
 	}
 	return BlockLayer_FLOOR
 }
 
-func (x *BlockUpdateResponse) GetMetadata() *JsonMetadata {
+func (x *BlockUpdateResponseMessage) GetMetadata() *JsonMetadata {
 	if x != nil {
 		return x.Metadata
 	}
 	return nil
 }
 
-func (x *BlockUpdateResponse) GetEffects() []string {
+func (x *BlockUpdateResponseMessage) GetEffects() []string {
 	if x != nil {
 		return x.Effects
 	}
@@ -315,8 +315,8 @@ const file_block_proto_rawDesc = "" +
 	"\bblock_id\x18\x02 \x01(\rR\ablockId\x12*\n" +
 	"\x05layer\x18\x03 \x01(\x0e2\x14.protocol.BlockLayerR\x05layer\x122\n" +
 	"\bmetadata\x18\x04 \x01(\v2\x16.protocol.JsonMetadataR\bmetadata\x12\x16\n" +
-	"\x06action\x18\x05 \x01(\tR\x06action\"\x8a\x02\n" +
-	"\x13BlockUpdateResponse\x12\x18\n" +
+	"\x06action\x18\x05 \x01(\tR\x06action\"\x91\x02\n" +
+	"\x1aBlockUpdateResponseMessage\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x19\n" +
 	"\bblock_id\x18\x03 \x01(\rR\ablockId\x12*\n" +
@@ -346,21 +346,21 @@ func file_block_proto_rawDescGZIP() []byte {
 
 var file_block_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_block_proto_goTypes = []any{
-	(*BlockUpdateRequest)(nil),  // 0: protocol.BlockUpdateRequest
-	(*BlockUpdateResponse)(nil), // 1: protocol.BlockUpdateResponse
-	(*BlockData)(nil),           // 2: protocol.BlockData
-	(*BlockUpdateMessage)(nil),  // 3: protocol.BlockUpdateMessage
-	(*Vec2)(nil),                // 4: protocol.Vec2
-	(BlockLayer)(0),             // 5: protocol.BlockLayer
-	(*JsonMetadata)(nil),        // 6: protocol.JsonMetadata
+	(*BlockUpdateRequest)(nil),         // 0: protocol.BlockUpdateRequest
+	(*BlockUpdateResponseMessage)(nil), // 1: protocol.BlockUpdateResponseMessage
+	(*BlockData)(nil),                  // 2: protocol.BlockData
+	(*BlockUpdateMessage)(nil),         // 3: protocol.BlockUpdateMessage
+	(*Vec2)(nil),                       // 4: protocol.Vec2
+	(BlockLayer)(0),                    // 5: protocol.BlockLayer
+	(*JsonMetadata)(nil),               // 6: protocol.JsonMetadata
 }
 var file_block_proto_depIdxs = []int32{
 	4, // 0: protocol.BlockUpdateRequest.position:type_name -> protocol.Vec2
 	5, // 1: protocol.BlockUpdateRequest.layer:type_name -> protocol.BlockLayer
 	6, // 2: protocol.BlockUpdateRequest.metadata:type_name -> protocol.JsonMetadata
-	4, // 3: protocol.BlockUpdateResponse.position:type_name -> protocol.Vec2
-	5, // 4: protocol.BlockUpdateResponse.layer:type_name -> protocol.BlockLayer
-	6, // 5: protocol.BlockUpdateResponse.metadata:type_name -> protocol.JsonMetadata
+	4, // 3: protocol.BlockUpdateResponseMessage.position:type_name -> protocol.Vec2
+	5, // 4: protocol.BlockUpdateResponseMessage.layer:type_name -> protocol.BlockLayer
+	6, // 5: protocol.BlockUpdateResponseMessage.metadata:type_name -> protocol.JsonMetadata
 	4, // 6: protocol.BlockData.position:type_name -> protocol.Vec2
 	6, // 7: protocol.BlockData.metadata:type_name -> protocol.JsonMetadata
 	2, // 8: protocol.BlockUpdateMessage.blocks:type_name -> protocol.BlockData
