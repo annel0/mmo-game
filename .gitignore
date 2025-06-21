@@ -47,7 +47,6 @@ tests/logs/*.log
 
 # Cache directories
 .cache/
-cache/
 
 # Generated Protocol Buffers
 **/*.pb.go
